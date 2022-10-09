@@ -10,6 +10,7 @@ use super::Hasher;
 mod remainders;
 mod remainders_impl;
 mod grapheme;
+mod hmac;
 pub(crate) mod leet;
 
 impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
@@ -18,8 +19,8 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
     }
 
     pub(super) fn generate_password_verified_input(self) -> String {
-        let modified_data = self.data.to_owned() + self.username + self.modifier;
-        let key = self.key.to_owned();
+        let modified_data = self.data + self.username + self.modifier;
+        let key = self.key;
         let get_modified_key = move |i : usize| { if i == 0 {key.clone()} else {key.clone() + "\n" + &i.to_string()}};
     
         //In Passwordmaker Pro, leet is applied on a per-password-part basis. This means that if a password part ends in an upper-case Sigma,
@@ -111,7 +112,7 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let data = leetified_data.as_deref().unwrap_or(data);
         let key = yeet_upper_bytes(&key);
         let data = yeet_upper_bytes(data);
-        let hash = hmac::<H::MD5,_,_>(key, data);
+        let hash = hmac::hmac::<H::MD5,_,_>(key, data);
         let hash_as_integer = u128::from_be_bytes(hash);
         let grapheme_indices : Vec<_> = hash_as_integer.calc_remainders(characters.len() as u128).map(|llll| llll as usize).collect();
         let grapheme_indices = yoink_additional_graphemes_for_06_if_needed(grapheme_indices);
@@ -225,7 +226,7 @@ fn modern_hmac_to_grapheme_indices<T, F, C, Z, D, U>(key : &str, data: &str, to_
 {
     let key = yeet_upper_bytes(key);
     let data = yeet_upper_bytes(data);
-    to_dividend(hmac::<T,_,_>(key, data)).calc_remainders(divisor).map(to_usize).collect()
+    to_dividend(hmac::hmac::<T,_,_>(key, data)).calc_remainders(divisor).map(to_usize).collect()
 }
 
 fn modern_message_to_grapheme_indices<T, F, C, Z, D, U>(data: &str, to_dividend : F, divisor : D, to_usize : U) -> Vec<usize>
@@ -353,61 +354,4 @@ fn yeet_upper_bytes(input : &str) -> impl Iterator<Item=u8> + Clone + '_ {
 fn yoink_additional_graphemes_for_06_if_needed(mut input : Vec<usize>) -> Vec<usize> {
     input.resize(32, 0);
     input
-}
-
-fn hmac<T, K, M>(key : K, data : M) -> T::Output
-    where T : Hasher,
-    T::Output : AsRef<[u8]>,
-    K : Iterator<Item=u8> + Clone,
-    M : Iterator<Item=u8>,
-{
-    let key_len = key.clone().count();
-    let key =  if key_len > 64 {
-        KeyOrHash::from_hash(T::hash(&key.collect::<Vec<_>>()))
-    } else {
-        KeyOrHash::from_key(key)
-    };
-    let key = key.chain(std::iter::repeat(0)); //if key[i] does not exist, use 0 instead.
-
-    let mut inner_pad = [0u8;64];
-    let mut outer_pad = [0u8;64];
-
-    let pads = inner_pad.iter_mut().zip(outer_pad.iter_mut());
-    for ((i,o),k) in pads.zip(key) {
-        *i = k ^ 0x36;
-        *o = k ^ 0x5C;
-    }
-
-    let hash = T::hash(&inner_pad.iter().copied().chain(data).collect::<Vec<_>>());
-    T::hash(&outer_pad.iter().chain(hash.as_ref().iter()).copied().collect::<Vec<_>>())
-}
-
-enum KeyOrHash<K: Iterator<Item=u8>, H: AsRef<[u8]>> {
-    Key(K),
-    Hash{
-        hash : H,
-        idx : usize
-    }
-}
-
-impl<K: Iterator<Item=u8>, H: AsRef<[u8]>> KeyOrHash<K, H>{
-    fn from_key(key : K) -> Self {
-        Self::Key(key)
-    }
-    fn from_hash(hash : H) -> Self {
-        Self::Hash { hash, idx: 0 }
-    }
-}
-
-impl<K: Iterator<Item=u8>, H: AsRef<[u8]>> Iterator for KeyOrHash<K, H>{
-    type Item = u8;
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            KeyOrHash::Key(k) => k.next(),
-            KeyOrHash::Hash { hash: owned, idx } => {
-                *idx += 1;
-                owned.as_ref().get(*idx-1).copied()
-            },
-        }
-    }
 }
