@@ -18,18 +18,17 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         characters.graphemes(true).nth(1).is_some()
     }
 
-    pub(super) fn generate_password_verified_input(self) -> String {
-        let modified_data = self.data + self.username + self.modifier;
-        let key = self.key;
+    pub(super) fn generate_password_verified_input(&self, data : String, key : String) -> String {
+        let modified_data = data + self.username + self.modifier;
         let get_modified_key = move |i : usize| { if i == 0 {key.clone()} else {key.clone() + "\n" + &i.to_string()}};
     
         //In Passwordmaker Pro, leet is applied on a per-password-part basis. This means that if a password part ends in an upper-case Sigma,
         //the results would differ if we moved leeting to after all password parts were joined, or worse, did it on a per-character level.
         //However, this makes the code a lot more complex, as it forces us to create an owned string for each password part before combining.
         //Therefore, we treat that case special.
-        match self.post_leet {
+        match &self.post_leet {
             None => Self::generate_password_verified_no_post_leet(&modified_data, get_modified_key, &self.assembly_settings, &self.password_part_parameters),
-            Some(leet_level) => Self::generate_password_verified_with_post_leet(&modified_data, get_modified_key,&self.assembly_settings , &self.password_part_parameters, &leet_level),
+            Some(leet_level) => Self::generate_password_verified_with_post_leet(&modified_data, get_modified_key,&self.assembly_settings , &self.password_part_parameters, leet_level),
         }
     }
 
@@ -247,7 +246,7 @@ pub(super) struct PasswordPartParameters<'a>{
 }
 
 impl<'a> PasswordPartParameters<'a>{
-    pub(super) fn from_public_parameters(hash_algorithm : super::HashAlgorithm, leet : &super::UseLeetWhenGenerating, characters : &'a str) -> Self {
+    pub(super) fn from_public_parameters(hash_algorithm : super::HashAlgorithm, leet : super::UseLeetWhenGenerating, characters : &'a str) -> Self {
         use super::UseLeetWhenGenerating;
         let hash_algorithm = AlgoSelection::from_settings_algorithm(hash_algorithm);
         PasswordPartParameters{

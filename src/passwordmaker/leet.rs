@@ -11,7 +11,7 @@ enum CharOrSlice{
 
 impl LeetReplacementTable {
     /// Gets the appropriate leet replacement table for a given leet level.
-    pub(crate) fn get(leet_level : &LeetLevel) -> LeetReplacementTable {
+    pub(crate) fn get(leet_level : LeetLevel) -> LeetReplacementTable {
         let lookup_table = match leet_level {
             LeetLevel::One => &["4", "b", "c", "d", "3", "f", "g", "h", "i", "j", "k", "1", "m", "n", "0", "p", "9", "r", "s", "7", "u", "v", "w", "x", "y", "z"],
             LeetLevel::Two => &["4", "b", "c", "d", "3", "f", "g", "h", "1", "j", "k", "1", "m", "n", "0", "p", "9", "r", "5", "7", "u", "v", "w", "x", "y", "2"],
@@ -76,7 +76,7 @@ mod leet_tests{
     #[test]
     fn leet_test_icelandic(){
         for leet_level in LeetLevel::iter(){
-            let result = LeetReplacementTable::get(&leet_level).leetify(get_icelandic_test_string());
+            let result = LeetReplacementTable::get(leet_level).leetify(get_icelandic_test_string());
             let expected = get_icelandic_test_result(leet_level);
             assert_eq!(result, expected);
         }
@@ -92,7 +92,7 @@ mod leet_tests{
     #[test]
     fn leet_test_greek(){
         for leet_level in LeetLevel::iter(){
-            let result = LeetReplacementTable::get(&leet_level).leetify(get_greek_test_string());
+            let result = LeetReplacementTable::get(leet_level).leetify(get_greek_test_string());
             let expected = get_greek_test_result(leet_level);
             assert_eq!(result, expected);
         }
