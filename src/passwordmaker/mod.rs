@@ -1,14 +1,13 @@
-use std::convert::identity;
-use std::convert::TryInto;
+use std::iter::repeat;
 use unicode_segmentation::UnicodeSegmentation;
 use leet::LeetReplacementTable;
-use remainders::CalcRemainders;
 use grapheme::Grapheme;
+
+use base_conversion::BaseConversion;
 
 use super::Hasher;
 
-mod remainders;
-mod remainders_impl;
+mod base_conversion;
 mod grapheme;
 mod hmac;
 pub(crate) mod leet;
@@ -94,11 +93,11 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let message = pre_leet_level.as_ref().map(|l| l.leetify(&message)).unwrap_or(message);
         let message = yeet_upper_bytes(&message).collect::<Vec<u8>>();
         let hash = H::MD5::hash(&message);
-        let hash_as_integer = u128::from_be_bytes(hash);
-        let grapheme_indices : Vec<_> = hash_as_integer.calc_remainders(characters.len() as u128).map(|llll| llll as usize).collect();
+        let grapheme_indices = hash.convert_to_base(characters.len());
         let grapheme_indices = yoink_additional_graphemes_for_06_if_needed(grapheme_indices);
-        GetGraphemesIterator { graphemes : characters, inner: grapheme_indices.into_iter().rev()}
+        GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::V06(grapheme_indices)}
     }
+
     
     fn generate_password_part_v06_hmac<'a>(
         data : &str,
@@ -112,10 +111,9 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let key = yeet_upper_bytes(&key);
         let data = yeet_upper_bytes(data);
         let hash = hmac::hmac::<H::MD5,_,_>(key, data);
-        let hash_as_integer = u128::from_be_bytes(hash);
-        let grapheme_indices : Vec<_> = hash_as_integer.calc_remainders(characters.len() as u128).map(|llll| llll as usize).collect();
+        let grapheme_indices = hash.convert_to_base(characters.len());
         let grapheme_indices = yoink_additional_graphemes_for_06_if_needed(grapheme_indices);
-        GetGraphemesIterator { graphemes : characters, inner: grapheme_indices.into_iter().rev()}
+        GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::V06(grapheme_indices)}
     }
     
     fn generate_password_part_modern_hmac<'a>(
@@ -128,20 +126,19 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let key = pre_leet_level.as_ref().map(|l| l.leetify(&key)).unwrap_or(key);
         let leetified_data = pre_leet_level.as_ref().map(|l| l.leetify(data));
         let data = leetified_data.as_deref().unwrap_or(data);
-        let to_usize = |l : u128| l as usize;
-        let grapheme_indices : Vec<_> = match algo {
+        let grapheme_indices = match algo {
             Algorithm::Md4 => 
-                modern_hmac_to_grapheme_indices::<H::MD4,_,_,_,_,_>(&key, data, u128::from_be_bytes, characters.len() as u128, to_usize),
+                modern_hmac_to_grapheme_indices::<H::MD4>(&key, data, characters.len()),
             Algorithm::Md5 => 
-                modern_hmac_to_grapheme_indices::<H::MD5,_,_,_,_,_>(&key, data, u128::from_be_bytes, characters.len() as u128, to_usize),
+                modern_hmac_to_grapheme_indices::<H::MD5>(&key, data, characters.len()),
             Algorithm::Sha1 => 
-                modern_hmac_to_grapheme_indices::<H::SHA1,_,_,_,_,_>(&key, data, ToI32Array::to_int_array, characters.len(), identity),
+                modern_hmac_to_grapheme_indices::<H::SHA1>(&key, data, characters.len()),
             Algorithm::Sha256 => 
-                modern_hmac_to_grapheme_indices::<H::SHA256,_,_,_,_,_>(&key, data, ToI32Array::to_int_array, characters.len(), identity),
+                modern_hmac_to_grapheme_indices::<H::SHA256>(&key, data, characters.len()),
             Algorithm::Ripemd160 => 
-                modern_hmac_to_grapheme_indices::<H::RIPEMD160,_,_,_,_,_>(&key, data, ToI32Array::to_int_array, characters.len(), identity),
+                modern_hmac_to_grapheme_indices::<H::RIPEMD160>(&key, data, characters.len()),
         };
-        GetGraphemesIterator { graphemes : characters, inner: grapheme_indices.into_iter().rev()}
+        GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::Modern(grapheme_indices)}
     }
     
     fn generate_password_part_modern<'a>(
@@ -153,20 +150,19 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
     ) -> GetGraphemesIterator<'a>  {
         let message = message + second_part;
         let message = pre_leet_level.as_ref().map(|l| l.leetify(&message)).unwrap_or(message);
-        let to_usize = |l : u128| l as usize;
-        let grapheme_indices : Vec<_> = match algo {
+        let grapheme_indices = match algo {
             Algorithm::Md4 => 
-                modern_message_to_grapheme_indices::<H::MD4,_,_,_,_,_>(&message,u128::from_be_bytes,characters.len() as u128, to_usize),
+                modern_message_to_grapheme_indices::<H::MD4>(&message, characters.len()),
             Algorithm::Md5 => 
-                modern_message_to_grapheme_indices::<H::MD5,_,_,_,_,_>(&message,u128::from_be_bytes,characters.len() as u128, to_usize),
+                modern_message_to_grapheme_indices::<H::MD5>(&message,characters.len()),
             Algorithm::Sha1 => 
-                modern_message_to_grapheme_indices::<H::SHA1,_,_,_,_,_>(&message,ToI32Array::to_int_array,characters.len(), identity),
+                modern_message_to_grapheme_indices::<H::SHA1>(&message,characters.len()),
             Algorithm::Sha256 => 
-                modern_message_to_grapheme_indices::<H::SHA256,_,_,_,_,_>(&message,ToI32Array::to_int_array,characters.len(), identity),
+                modern_message_to_grapheme_indices::<H::SHA256>(&message,characters.len()),
             Algorithm::Ripemd160 => 
-                modern_message_to_grapheme_indices::<H::RIPEMD160,_,_,_,_,_>(&message,ToI32Array::to_int_array,characters.len(), identity),
+                modern_message_to_grapheme_indices::<H::RIPEMD160>(&message,characters.len()),
         };
-        GetGraphemesIterator { graphemes : characters, inner: grapheme_indices.into_iter().rev()}
+        GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::Modern(grapheme_indices)}
     }
 }
 
@@ -199,9 +195,13 @@ fn combine_prefix_password_suffix<'a, T : Iterator<Item=Grapheme<'a>>>(password:
         .collect() 
 }
 
+enum GetGraphemesIteratorInner {
+    Modern(std::iter::Rev<std::vec::IntoIter<usize>>),
+    V06(std::iter::Chain<std::iter::Take<std::iter::Repeat<usize>>, std::iter::Rev<std::vec::IntoIter<usize>>>)
+}
 struct GetGraphemesIterator<'a> {
     graphemes : &'a Vec<Grapheme<'a>>,
-    inner : std::iter::Rev<std::vec::IntoIter<usize>>,
+    inner : GetGraphemesIteratorInner
     //There really should be a better solution than storing those values. If we had arbitrary-length multiplication and subtraction maybe?
     //like, finding the highest potence of divisor that still is smaller than the dividend, and dividing by that one to get the left-most digit,
     //dividing the remainder of this operation by the next-lower potence of divisor to get the second digit, and so on?
@@ -211,32 +211,26 @@ impl<'a> Iterator for GetGraphemesIterator<'a> {
     type Item = Grapheme<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().and_then(|i| self.graphemes.get(i)).cloned()
+        let idx = match &mut self.inner {
+            GetGraphemesIteratorInner::Modern(i) => i.next(),
+            GetGraphemesIteratorInner::V06(i) => i.next(),
+        };
+        idx.and_then(|idx| self.graphemes.get(idx).cloned())
     }
 }
 
-fn modern_hmac_to_grapheme_indices<T, F, C, Z, D, U>(key : &str, data: &str, to_dividend : F, divisor : D, to_usize : U) -> Vec<usize>
+fn modern_hmac_to_grapheme_indices<T>(key : &str, data: &str, divisor : usize) -> std::iter::Rev<std::vec::IntoIter<usize>>
     where T:Hasher,
-    C: CalcRemainders<Z,D>,
-    F: Fn(T::Output) -> C,
-    Z:remainders::Division<D>,
-    U: Fn(D) -> usize,
-    <T as Hasher>::Output: AsRef<[u8]>
+    <T as Hasher>::Output: BaseConversion + AsRef<[u8]>
 {
-    let key = yeet_upper_bytes(key);
-    let data = yeet_upper_bytes(data);
-    to_dividend(hmac::hmac::<T,_,_>(key, data)).calc_remainders(divisor).map(to_usize).collect()
+    hmac::hmac::<T,_,_>(key.bytes(), data.bytes()).convert_to_base(divisor)
 }
 
-fn modern_message_to_grapheme_indices<T, F, C, Z, D, U>(data: &str, to_dividend : F, divisor : D, to_usize : U) -> Vec<usize>
+fn modern_message_to_grapheme_indices<T>(data: &str, divisor : usize) -> std::iter::Rev<std::vec::IntoIter<usize>>
     where T:Hasher,
-    C: CalcRemainders<Z,D>,
-    F: Fn(T::Output) -> C,
-    Z:remainders::Division<D>,
-    U: Fn(D) -> usize,
-    <T as Hasher>::Output: AsRef<[u8]>
+    <T as Hasher>::Output: BaseConversion
 {
-    to_dividend(T::hash(data.as_bytes())).calc_remainders(divisor).map(to_usize).collect()
+    T::hash(data.as_bytes()).convert_to_base(divisor)
 }
 
 pub(super) struct PasswordPartParameters<'a>{
@@ -308,49 +302,16 @@ impl AlgoSelection {
     }
 }
 
-// Rust 1.52 only has a very limited support for const generics. This means, we'll have multiple impls for array conversion.
-trait ToI32Array<const I : usize> {
-    fn to_int_array(self) -> [u32; I];
-}
-
-//this could of course be done in a generic manner, but it's ugly without array_mut, which we don't have in Rust 1.52.
-//Soo, pedestrian's approach :D 
-impl ToI32Array<5> for [u8;20] {
-    fn to_int_array(self) -> [u32; 5] {
-        [
-            u32::from_be_bytes(self[0..4].try_into().unwrap()),
-            u32::from_be_bytes(self[4..8].try_into().unwrap()),
-            u32::from_be_bytes(self[8..12].try_into().unwrap()),
-            u32::from_be_bytes(self[12..16].try_into().unwrap()),
-            u32::from_be_bytes(self[16..20].try_into().unwrap()),
-        ]
-    }
-}
-
-impl ToI32Array<8> for [u8;32] {
-    fn to_int_array(self) -> [u32; 8] {
-        [
-            u32::from_be_bytes(self[0..4].try_into().unwrap()),
-            u32::from_be_bytes(self[4..8].try_into().unwrap()),
-            u32::from_be_bytes(self[8..12].try_into().unwrap()),
-            u32::from_be_bytes(self[12..16].try_into().unwrap()),
-            u32::from_be_bytes(self[16..20].try_into().unwrap()),
-            u32::from_be_bytes(self[20..24].try_into().unwrap()),
-            u32::from_be_bytes(self[24..28].try_into().unwrap()),
-            u32::from_be_bytes(self[28..32].try_into().unwrap()),
-        ]
-    }
-}
-
-// Yeets the upper bytes of each UTF-16 char representation. Needed, because PasswordMaker Pro does that for some algorithms (HMAC, MD5 0.6)
+// Yeets the upper bytes of each UTF-16 char representation. Needed, because PasswordMaker Pro did that for MD5 in version 0.6
 // Returns bytes, because there's no way that this transform doesn't break the string.
 #[allow(clippy::cast_possible_truncation)] //clippy, stop complaining. Truncating is the very purpose of this function...
 fn yeet_upper_bytes(input : &str) -> impl Iterator<Item=u8> + Clone + '_ {
     input.encode_utf16().map(|wide_char| wide_char as u8)
 }
 
-// 0.6 Md5 might need to yoink an additional 0 for output graphemes.
-fn yoink_additional_graphemes_for_06_if_needed(mut input : Vec<usize>) -> Vec<usize> {
-    input.resize(32, 0);
-    input
+//signature subject to change, but need named types...
+fn yoink_additional_graphemes_for_06_if_needed(input : std::iter::Rev<std::vec::IntoIter<usize>>)
+     -> std::iter::Chain<std::iter::Take<std::iter::Repeat<usize>>, std::iter::Rev<std::vec::IntoIter<usize>>>
+{
+    repeat(0_usize).take(32-input.len()).chain(input)
 }
