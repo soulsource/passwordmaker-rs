@@ -12,7 +12,7 @@ pub(super) trait BaseConversion {
     fn convert_to_base(self, base : usize) -> std::iter::Rev<std::vec::IntoIter<usize>>;
 }
 
-impl<const N : usize, T> BaseConversion for T where T : ToI32Array<Output = [u32;N]>{
+impl<T, const N : usize> BaseConversion for T where T : ToI32Array<Output = [u32;N]>{
     fn convert_to_base(self, base : usize) -> std::iter::Rev<std::vec::IntoIter<usize>> {
         self.to_int_array().calc_remainders(base).collect::<Vec<_>>().into_iter().rev()
     }
@@ -27,8 +27,7 @@ impl BaseConversion for [u8;16]{
 
 
 // Rust 1.52 only has a very limited support for const generics. This means, we'll have to live with this not-too-constrained solution...
-// Well, it's private, so no big loss.
-trait ToI32Array {
+pub(super) trait ToI32Array {
     type Output;
     fn to_int_array(self) -> Self::Output;
 }
