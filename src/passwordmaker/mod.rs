@@ -242,7 +242,7 @@ pub(super) struct PasswordPartParameters<'a>{
 impl<'a> PasswordPartParameters<'a>{
     pub(super) fn from_public_parameters(hash_algorithm : super::HashAlgorithm, leet : super::UseLeetWhenGenerating, characters : &'a str) -> Self {
         use super::UseLeetWhenGenerating;
-        let hash_algorithm = AlgoSelection::from_settings_algorithm(hash_algorithm);
+        let hash_algorithm = AlgoSelection::from_public_parameters(hash_algorithm);
         PasswordPartParameters{
             characters: match &hash_algorithm {
                 AlgoSelection::V06(_) => Grapheme::iter_from_str("0123456789abcdef").collect(),
@@ -283,7 +283,7 @@ enum AlgoSelection{
 }
 
 impl AlgoSelection {
-    fn from_settings_algorithm(settings_algorithm : super::HashAlgorithm) -> Self {
+    fn from_public_parameters(settings_algorithm : super::HashAlgorithm) -> Self {
         use super::HashAlgorithm;
         match settings_algorithm {
             HashAlgorithm::Md5Version06 => AlgoSelection::V06(V06HmacOrNot::NonHmac),
