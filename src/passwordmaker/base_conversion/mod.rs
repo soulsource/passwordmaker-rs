@@ -1,6 +1,10 @@
 use std::convert::TryInto;
 
-use self::remainders::CalcRemainders;
+use remainders::CalcRemainders;
+
+mod division;
+mod iterative_conversion;
+mod iterative_conversion_impl;
 
 mod remainders;
 mod remainders_impl;

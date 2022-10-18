@@ -1,4 +1,4 @@
-use super::remainders::{Division, UseGenericDivision, DivisionResult};
+use super::division::{Division, UseGenericDivision, DivisionResult};
 
 impl UseGenericDivision for u128{} //for Md4, Md5
 

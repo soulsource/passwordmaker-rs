@@ -1,21 +1,9 @@
-/// Adds `calc_remainders(divisor)` method to types that have some implementation of the Division trait.
+use super::division::{Division, DivisionResult};
+
+/// Trait used for the old base conversion. 
 pub(super) trait CalcRemainders<T, D>{
     fn calc_remainders(self, divisor : D) -> Remainders<T,D>;
 }
-
-/// Implement `Division` to enable the `calc_remainders()` method for your type.
-pub(super) trait Division<D> where Self:Sized {
-    /// does in-place arbitrary-length division. Returns remainder.
-    fn divide(self, divisor : &D) -> DivisionResult<Self, D>;
-    fn is_zero(&self) -> bool;
-}
-
-/// Or mark your type as `UseGenericDivision` to just use `/` and `%` operators for types. Makes only sense for integers.
-pub(super) trait UseGenericDivision : Clone 
-    + for <'a> std::ops::Div<&'a Self, Output = Self> 
-    + for <'a> std::ops::Rem<&'a Self, Output = Self> 
-    + Default
-    + Eq {}
 
 impl<T, D> CalcRemainders<T, D> for T 
     where T:Division<D>
@@ -51,24 +39,5 @@ impl<U, T:Division<U>> Iterator for Remainders<T,U>{
         } else {
             None
         }
-    }
-}
-
-pub(super) struct DivisionResult<T:Division<U>, U> {
-    pub result : T,
-    pub remainder : U,
-}
-
-impl<U> Division<U> for U
-    where U: UseGenericDivision
-{
-    fn divide(self, divisor : &Self) -> DivisionResult<Self, Self> {
-        DivisionResult { 
-            result: self.clone().div(divisor),
-            remainder: self.rem(divisor)
-        }
-    }
-    fn is_zero(&self) -> bool {
-        *self == Self::default()
     }
 }
