@@ -15,7 +15,13 @@ use std::{ops::{DivAssign, Mul, SubAssign}, convert::{TryFrom, TryInto}, fmt::Di
 use super::iterative_conversion::RemAssignWithQuotient;
 
 //Type to be used as V, with usize as B.
-struct SixteenBytes(u128);
+pub(crate) struct SixteenBytes(u128);
+
+impl SixteenBytes{
+    pub(super) fn new(value : u128) -> Self {
+        SixteenBytes(value)
+    }
+}
 
 //just for convenience
 impl From<u128> for SixteenBytes{
@@ -58,7 +64,7 @@ impl Mul<&usize> for &SixteenBytes{
 //We cannot directly implement all the Foreign traits on arrays directly. So, newtypes again.
 
 #[derive(PartialEq, PartialOrd, Ord, Eq, Clone)]
-struct ArbitraryBytes<const N : usize>([u32;N]);
+pub(crate) struct ArbitraryBytes<const N : usize>([u32;N]);
 
 //Const generics are still a bit limited -> let's just implement From for the exact types we need.
 impl From<&usize> for ArbitraryBytes<5>{
@@ -116,7 +122,7 @@ impl From<&u32> for ArbitraryBytes<8>{
 }
 
 //workaround for lack of proper const-generic support.
-trait PadWithAZero{
+pub(super) trait PadWithAZero{
     type Output;
     fn pad_with_a_zero(&self) -> Self::Output;
 }
@@ -160,7 +166,7 @@ impl<const N : usize> DivAssign<&usize> for ArbitraryBytes<N>{
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ArbitraryBytesToUsizeError;
+pub(crate) struct ArbitraryBytesToUsizeError;
 impl Display for ArbitraryBytesToUsizeError{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "conversion from arbitrary sized int-array to usize failed")
@@ -203,7 +209,7 @@ impl<const N : usize> TryFrom<&ArbitraryBytes<N>> for usize{
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ArbitraryBytesToU32Error;
+pub(crate) struct ArbitraryBytesToU32Error;
 impl Display for ArbitraryBytesToU32Error{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "conversion from arbitrary sized int-array to u32 failed")
@@ -233,7 +239,7 @@ impl<const N : usize> Mul<&usize> for &ArbitraryBytes<N>{
         //somewhere we need this clone, can just as well be in here...
         let mut result = self.0.clone();
         let carry = result.iter_mut().rev().fold(UsizeAndFour::default(), |carry, digit|{
-            assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry always has to fit in usize, otherwise something is terribly wrong.
+            debug_assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry always has to fit in usize, otherwise something is terribly wrong.
             let res = (*digit as UsizeAndFour) * (*rhs as UsizeAndFour) + carry;
             *digit = res as u32;
             res >> 32
@@ -276,7 +282,7 @@ impl<const N : usize> Mul<u32> for ArbitraryBytes<N>{
     fn mul(mut self, rhs: u32) -> Self::Output {
         //somewhere we need this clone, can just as well be in here...
         let carry = self.0.iter_mut().rev().fold(u64::default(), |carry, digit|{
-            assert_eq!(carry, carry & (u32::MAX as u64)); //carry always has to fit in usize, otherwise something is terribly wrong.
+            debug_assert_eq!(carry, carry & (u32::MAX as u64)); //carry always has to fit in usize, otherwise something is terribly wrong.
             let res = (*digit as u64) * (rhs as u64) + carry;
             *digit = res as u32;
             res >> 32
@@ -301,31 +307,35 @@ impl<const N : usize> SubAssign<&ArbitraryBytes<N>> for ArbitraryBytes<N>{
                 1
             }
         });
-        assert_eq!(carry,0);
+        debug_assert_eq!(carry,0);
     }
 }
 
 
 impl<const N : usize> ArbitraryBytes<N>{
+    pub(super) fn new(data : [u32;N]) -> Self {
+        ArbitraryBytes(data)
+    }
+
     /// Replaces self with Quotient and returns Remainder
     fn div_assign_with_remainder_usize(&mut self, rhs: &usize) -> usize {
         #[cfg(target_pointer_width = "64")]
         type UsizeAndFour = u128;
         #[cfg(not(target_pointer_width = "64"))]
         type UsizeAndFour = u64;
-        assert!((UsizeAndFour::MAX >> 32) as u128 >= usize::MAX as u128);
+        debug_assert!((UsizeAndFour::MAX >> 32) as u128 >= usize::MAX as u128);
 
         let divisor : UsizeAndFour = *rhs as UsizeAndFour;
         let remainder = self.0.iter_mut().fold(0 as UsizeAndFour,|carry, current| {
-            assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry has to be lower than divisor, and divisor is usize.
+            debug_assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry has to be lower than divisor, and divisor is usize.
             let carry_shifted = carry << 32;
             let dividend = (carry_shifted) + (*current as UsizeAndFour);
             let ratio = dividend / divisor;
-            assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
+            debug_assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
             *current = (ratio) as u32; 
             dividend - (*current as UsizeAndFour) * divisor
         });
-        assert_eq!(remainder, remainder & (usize::MAX as UsizeAndFour));
+        debug_assert_eq!(remainder, remainder & (usize::MAX as UsizeAndFour));
         remainder as usize
     }
 
@@ -333,15 +343,15 @@ impl<const N : usize> ArbitraryBytes<N>{
     fn div_assign_with_remainder_u32(&mut self, rhs: &u32) -> u32 {
         let divisor : u64 = *rhs as u64;
         let remainder = self.0.iter_mut().fold(0 as u64,|carry, current| {
-            assert_eq!(carry, carry & (u32::MAX as u64)); //carry has to be lower than divisor, and divisor is usize.
+            debug_assert_eq!(carry, carry & (u32::MAX as u64)); //carry has to be lower than divisor, and divisor is usize.
             let carry_shifted = carry << 32;
             let dividend = (carry_shifted) + (*current as u64);
             let ratio = dividend / divisor;
-            assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
+            debug_assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
             *current = (ratio) as u32; 
             dividend - (*current as u64) * divisor
         });
-        assert_eq!(remainder, remainder & (u32::MAX as u64));
+        debug_assert_eq!(remainder, remainder & (u32::MAX as u64));
         remainder as u32
     }
 
@@ -355,10 +365,10 @@ impl<const N : usize> ArbitraryBytes<N>{
         where Self : PadWithAZero<Output = ArbitraryBytes<M>> +
                      for<'a> From<&'a usize>
     {
-        assert!(M == N+1);
+        debug_assert!(M == N+1);
         //first we need to find n (number of digits in divisor)
         let n_digits_divisor= N - divisor.find_first_nonzero_digit();
-        assert!(n_digits_divisor > 1);
+        debug_assert!(n_digits_divisor > 1);
         //and same in the non-normalized dividend
         let m_plus_n_digits_dividend = N - self.find_first_nonzero_digit();
         let m_extra_digits_dividend = m_plus_n_digits_dividend - n_digits_divisor;
@@ -376,7 +386,7 @@ impl<const N : usize> ArbitraryBytes<N>{
         let divisor_second_significant_digit = divisor.get_digit_from_right(n_digits_divisor-2) as u64;
 
         //step D2, D7: the loop.
-        for j in m_extra_digits_dividend..=0 {
+        for j in (0..=m_extra_digits_dividend).rev() {
             //Step D3: Guess a digit
             let guess_dividend = ((dividend.get_digit_from_right(j+n_digits_divisor) as u64)<<32) + (dividend.get_digit_from_right(j + n_digits_divisor - 1) as u64);
             let mut guesstimate = guess_dividend/guess_divisor;
@@ -393,7 +403,7 @@ impl<const N : usize> ArbitraryBytes<N>{
             //I'm too tired to do this by the book. If this thing is gonna blow, we can just as well increase our guesstimate by one and call it a day.
             //In any case, this does only happen in _very_ rare cases. Soo:
             //Steps D4-D6.
-            assert!(guesstimate & (u32::MAX as u64) == guesstimate); //Knuth says this is a one-place number, and I trust him.
+            debug_assert!(guesstimate & (u32::MAX as u64) == guesstimate); //Knuth says this is a one-place number, and I trust him.
             let mut guesstimate = guesstimate as u32;
             let mut s = (divisor.clone() * guesstimate).expect("Multipliation by a digit cannot overflow for a padded type.");
             let will_overflow = 
@@ -402,7 +412,7 @@ impl<const N : usize> ArbitraryBytes<N>{
             if will_overflow {
                 guesstimate -= 1;
                 s -= &divisor;
-                assert!(std::cmp::Ord::cmp(&dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]) != Ordering::Less)
+                debug_assert!(std::cmp::Ord::cmp(&dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]) != Ordering::Less)
             }
             slice_sub_assign(&mut dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]);
             quotient.set_digit_from_right(guesstimate, j);
@@ -428,7 +438,7 @@ impl<const N : usize> ArbitraryBytes<N>{
 }
 
 fn slice_sub_assign(lhs : &mut [u32], rhs: &[u32]){
-    assert_eq!(lhs.len(), rhs.len());
+    debug_assert_eq!(lhs.len(), rhs.len());
     let carry = lhs.iter_mut().zip(rhs.iter()).rev().fold(0_u64,|carry,(i,s)| {
         let s = (*s as u64) + carry;
         if *i as u64 >= s {
@@ -439,5 +449,38 @@ fn slice_sub_assign(lhs : &mut [u32], rhs: &[u32]){
             1
         }
     });
-    assert_eq!(carry,0);
+    debug_assert_eq!(carry,0);
+}
+
+#[cfg(test)]
+mod iterative_conversion_impl_tests{
+    use super::*;
+
+    #[test]
+    fn knuth_add_back_test(){
+        let mut dividend = ArbitraryBytes::new([
+            //m = 3, n=5
+            u32::MAX,
+            u32::MAX,
+            u32::MAX-1,
+            u32::MAX,
+            u32::MAX,
+            0,
+            0,
+            3
+        ]);
+        let divisor = ArbitraryBytes::new([
+            0,
+            0,
+            0,
+            0,
+            0,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        ]);
+        let result = dividend.rem_assign_with_quotient(&divisor);
+        assert_eq!(dividend.0, [0,0,0,0,0,0,0,2]);
+        assert_eq!(result.0, [0,0,0,u32::MAX,u32::MAX, u32::MAX, u32::MAX, u32::MAX]);
+    }
 }

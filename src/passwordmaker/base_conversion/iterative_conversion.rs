@@ -12,7 +12,7 @@ use std::convert::TryInto;
 use std::ops::{Mul, DivAssign};
 use std::iter::successors;
 
-pub(super) struct IterativeBaseConversion<V,B>{
+pub(crate) struct IterativeBaseConversion<V,B>{
     current_value : V,
     current_base_potency : V,
     remaining_digits : usize,
@@ -140,5 +140,12 @@ mod iterative_conversion_tests{
         let i = IterativeBaseConversion::new(MyU128(1234567890123456789u128), 17u64);
         assert_eq!(i.len(), 32);
         assert_eq!(i.skip_while(|x| *x == 0_u64).collect::<Vec<_>>(), vec![7, 5, 0xA, 0x10, 0xC, 0xC, 3, 0xD, 3, 0xA, 3,8,4,8,3]);
+    }
+    #[test]
+    fn test_simple_u128_to_base_39_conversion(){
+        let i = IterativeBaseConversion::new(MyU128(1234567890123456789u128), 39u64);
+        assert_eq!(i.len(), 25);
+        // 3YPRS4FaC1KU
+        assert_eq!(i.skip_while(|x| *x == 0_u64).collect::<Vec<_>>(), vec![3, 34, 25, 27, 28, 4, 15, 36, 12, 1, 20, 30]);
     }
 }
