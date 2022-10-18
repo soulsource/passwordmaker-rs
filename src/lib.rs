@@ -17,6 +17,9 @@
 //! 
 //! [`PasswordMaker`] is the main part of this crate. You give it settings similar to those of a PasswordMaker Pro profile,
 //! and it gives you a password that's hopfully the same you'd get from PasswordMaker Pro for the same input.
+//! 
+//! # Warning
+//! This library has NOT been tested on 16bit machines. It might work, but probably does not.
 
 
 mod passwordmaker;
