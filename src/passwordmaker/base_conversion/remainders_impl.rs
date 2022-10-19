@@ -9,20 +9,20 @@ impl<const N : usize> Division<usize> for [u32;N] {
         type UsizeAndFour = u128;
         #[cfg(not(target_pointer_width = "64"))]
         type UsizeAndFour = u64;
-        assert!((UsizeAndFour::MAX >> 32) as u128 >= usize::MAX as u128);
+        debug_assert!((UsizeAndFour::MAX >> 32) as u128 >= usize::MAX as u128);
 
         //uses mutation, because why not? self is owned after all :D
         let divisor : UsizeAndFour = *divisor as UsizeAndFour;
         let remainder = self.iter_mut().fold(0 as UsizeAndFour,|carry, current| {
-            assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry has to be lower than divisor, and divisor is usize.
+            debug_assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry has to be lower than divisor, and divisor is usize.
             let carry_shifted = carry << 32;
             let dividend = (carry_shifted) + (*current as UsizeAndFour);
             let ratio = dividend / divisor;
-            assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
+            debug_assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
             *current = (ratio) as u32; 
             dividend - (*current as UsizeAndFour) * divisor
         });
-        assert_eq!(remainder, remainder & (usize::MAX as UsizeAndFour));
+        debug_assert_eq!(remainder, remainder & (usize::MAX as UsizeAndFour));
         let remainder = remainder as usize;
         DivisionResult{
             result: self,

@@ -57,7 +57,7 @@ impl HasherList for MockHashes {
 
 type Pwm<'a> = PasswordMaker<'a, MockHashes>;
 
-fn criterion_bench_32bit(c: &mut Criterion) {
+fn criterion_bench_32bytes(c: &mut Criterion) {
     let pwm = Pwm::new(
         HashAlgorithm::Sha256, 
         passwordmaker_rs::UseLeetWhenGenerating::NotAtAll,
@@ -76,7 +76,45 @@ fn criterion_bench_32bit(c: &mut Criterion) {
     }));
 }
 
-fn criterion_bench_16bit(c: &mut Criterion) {
+fn criterion_bench_32bytes_extreme(c: &mut Criterion) {
+    let pwm = Pwm::new(
+        HashAlgorithm::Sha256, 
+        passwordmaker_rs::UseLeetWhenGenerating::NotAtAll,
+        "XY",
+        "",
+        "",
+        150,
+        "",
+        ""
+    ).unwrap();
+    c.bench_function("32 bytes extreme", |b| b.iter(|| {
+        pwm.generate(
+            black_box("This is a long string. With many, many characters. For no particular reason.".to_owned()),
+            black_box("And another relatively long string for no reason other than it being long.".to_owned())
+        )
+    }));
+}
+
+fn criterion_bench_20bytes(c: &mut Criterion) {
+    let pwm = Pwm::new(
+        HashAlgorithm::Ripemd160, 
+        passwordmaker_rs::UseLeetWhenGenerating::NotAtAll,
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789`~!@#$%^&*()_-+={}|[]\\:\";'<>?,./",
+        "",
+        "",
+        150,
+        "",
+        ""
+    ).unwrap();
+    c.bench_function("20 bytes", |b| b.iter(|| {
+        pwm.generate(
+            black_box("This is a long string. With many, many characters. For no particular reason.".to_owned()),
+            black_box("And another relatively long string for no reason other than it being long.".to_owned())
+        )
+    }));
+}
+
+fn criterion_bench_16bytes(c: &mut Criterion) {
     let pwm = Pwm::new(
         HashAlgorithm::Md5, 
         passwordmaker_rs::UseLeetWhenGenerating::NotAtAll,
@@ -95,7 +133,26 @@ fn criterion_bench_16bit(c: &mut Criterion) {
     }));
 }
 
-fn criterion_bench_16bit_post_leet(c: &mut Criterion) {
+fn criterion_bench_16bytes_extreme(c: &mut Criterion) {
+    let pwm = Pwm::new(
+        HashAlgorithm::Md5, 
+        passwordmaker_rs::UseLeetWhenGenerating::NotAtAll,
+        "XY",
+        "",
+        "",
+        150,
+        "",
+        ""
+    ).unwrap();
+    c.bench_function("16 bytes extreme", |b| b.iter(|| {
+        pwm.generate(
+            black_box("This is a long string. With many, many characters. For no particular reason.".to_owned()),
+            black_box("And another relatively long string for no reason other than it being long.".to_owned())
+        )
+    }));
+}
+
+fn criterion_bench_16bytes_post_leet(c: &mut Criterion) {
     let pwm = Pwm::new(
         HashAlgorithm::Md5, 
         passwordmaker_rs::UseLeetWhenGenerating::After { level: LeetLevel::Six },
@@ -114,7 +171,7 @@ fn criterion_bench_16bit_post_leet(c: &mut Criterion) {
     }));
 }
 
-fn criterion_bench_16bit_pre_leet(c: &mut Criterion) {
+fn criterion_bench_16bytes_pre_leet(c: &mut Criterion) {
     let pwm = Pwm::new(
         HashAlgorithm::Md5, 
         passwordmaker_rs::UseLeetWhenGenerating::Before { level: LeetLevel::Six },
@@ -133,5 +190,13 @@ fn criterion_bench_16bit_pre_leet(c: &mut Criterion) {
     }));
 }
 
-criterion_group!(benches, criterion_bench_32bit, criterion_bench_16bit, criterion_bench_16bit_post_leet, criterion_bench_16bit_pre_leet);
+criterion_group!(benches,
+    criterion_bench_32bytes,
+    criterion_bench_32bytes_extreme,
+    criterion_bench_20bytes,
+    criterion_bench_16bytes,
+    criterion_bench_16bytes_extreme,
+    criterion_bench_16bytes_post_leet,
+    criterion_bench_16bytes_pre_leet
+);
 criterion_main!(benches);
