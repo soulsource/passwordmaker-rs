@@ -373,10 +373,11 @@ impl<const N : usize> ArbitraryBytes<N>{
         let m_extra_digits_dividend = m_plus_n_digits_dividend - n_digits_divisor;
 
         //step D1: Normalize. This brings the maximum error for each digit down to no more than 2.
-        let d = ((1u64 << 32) / (1u64 + (divisor.get_digit_from_right(n_digits_divisor - 1) as u64))) as u32;
+        let normalize_shift = divisor.get_digit_from_right(n_digits_divisor - 1).leading_zeros() as usize;
         //again, missing const generics ruin all the fun.
-        let mut dividend = (self.pad_with_a_zero() * d).expect("Normalizing dividend failed due to overflow. Mathematically impossible.");
-        let divisor = (divisor.pad_with_a_zero() * d).expect("Normalizing divisor failed due to overflow. Mathematically impossible.");
+        let mut dividend = self.shift_left(normalize_shift);
+        let divisor = divisor.shift_left(normalize_shift);
+        debug_assert_eq!(divisor.get_digit_from_right(n_digits_divisor - 1).leading_zeros(),0);
 
         let mut quotient : Self = (&0_usize).into();
 
@@ -417,8 +418,8 @@ impl<const N : usize> ArbitraryBytes<N>{
         }
 
         //Steop D8: Compute Remainder.
-        dividend.div_assign_with_remainder_u32(&d);
-        self.0 = dividend.0[1..].try_into().expect("Conversion of what should have been an N-element slice into an N-element array failed.");
+        self.0 = dividend.shift_right(normalize_shift).0[1..].try_into()
+            .expect("Conversion of what should have been an N-element slice into an N-element array failed.");
         quotient
         
     }
@@ -432,6 +433,37 @@ impl<const N : usize> ArbitraryBytes<N>{
     }
     fn set_digit_from_right(&mut self, val: u32, i : usize){
         self.0[N-i-1] = val;
+    }
+
+    fn shift_left<const M : usize>(&self, s : usize) -> <Self as PadWithAZero>::Output
+        where Self : PadWithAZero<Output = ArbitraryBytes<M>>
+    {
+        debug_assert!(s < 32);
+        let mut res = self.pad_with_a_zero();
+        if s != 0{
+            let _ = res.0.iter_mut().rev().fold(0u32,|carry, val| {
+                let c = *val >> (32 - s);
+                *val <<= s;
+                debug_assert!(*val & carry == 0);
+                *val += carry;
+                c
+            });
+        }
+        res
+    }
+
+    fn shift_right(mut self, s : usize) -> Self {
+        debug_assert!(s < 32);
+        if s != 0 {
+            let _ = self.0.iter_mut().fold(0u32, |carry, val| {
+                let c = *val << (32-s);
+                *val >>= s;
+                debug_assert!(*val & carry == 0);
+                *val += carry;
+                c
+            });
+        }
+        self
     }
 }
 
@@ -490,7 +522,7 @@ mod iterative_conversion_impl_tests{
     fn prepare_many_numbers() -> Vec<(ArbitraryBytes<5>,ArbitraryBytes<5>, u128, u128)>{
         let mut rng = Xoshiro256Plus::seed_from_u64(0);
         let mut res = Vec::new();
-        for _i in 0..1000000 {
+        for _i in 0..10000000 {
             let dx = rng.next_u32() % 3 + 2; //at least 2 digits, at max 4 (u128)
             let dy = rng.next_u32() % 3 + 2;
             let ds = dx.min(dy);
