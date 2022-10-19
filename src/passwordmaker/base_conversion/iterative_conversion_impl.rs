@@ -280,7 +280,6 @@ impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<
 impl<const N : usize> Mul<u32> for ArbitraryBytes<N>{
     type Output = Option<ArbitraryBytes<N>>;
     fn mul(mut self, rhs: u32) -> Self::Output {
-        //somewhere we need this clone, can just as well be in here...
         let carry = self.0.iter_mut().rev().fold(u64::default(), |carry, digit|{
             debug_assert_eq!(carry, carry & (u32::MAX as u64)); //carry always has to fit in usize, otherwise something is terribly wrong.
             let res = (*digit as u64) * (rhs as u64) + carry;
@@ -333,7 +332,7 @@ impl<const N : usize> ArbitraryBytes<N>{
             let ratio = dividend / divisor;
             debug_assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
             *current = (ratio) as u32; 
-            dividend - (*current as UsizeAndFour) * divisor
+            dividend - ratio * divisor
         });
         debug_assert_eq!(remainder, remainder & (usize::MAX as UsizeAndFour));
         remainder as usize
@@ -342,14 +341,14 @@ impl<const N : usize> ArbitraryBytes<N>{
     /// Used in rem_assign_with_quotient_knuth. The normalization factor is u32, and u32 might be larger than usize.
     fn div_assign_with_remainder_u32(&mut self, rhs: &u32) -> u32 {
         let divisor : u64 = *rhs as u64;
-        let remainder = self.0.iter_mut().fold(0 as u64,|carry, current| {
+        let remainder = self.0.iter_mut().fold(0_u64,|carry, current| {
             debug_assert_eq!(carry, carry & (u32::MAX as u64)); //carry has to be lower than divisor, and divisor is usize.
             let carry_shifted = carry << 32;
             let dividend = (carry_shifted) + (*current as u64);
             let ratio = dividend / divisor;
             debug_assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
             *current = (ratio) as u32; 
-            dividend - (*current as u64) * divisor
+            dividend - ratio * divisor
         });
         debug_assert_eq!(remainder, remainder & (u32::MAX as u64));
         remainder as u32
@@ -407,8 +406,7 @@ impl<const N : usize> ArbitraryBytes<N>{
             let mut guesstimate = guesstimate as u32;
             let mut s = (divisor.clone() * guesstimate).expect("Multipliation by a digit cannot overflow for a padded type.");
             let will_overflow = 
-                std::cmp::Ord::cmp(&dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)])
-                == Ordering::Less;
+                std::cmp::PartialOrd::lt(&dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]);
             if will_overflow {
                 guesstimate -= 1;
                 s -= &divisor;
@@ -455,7 +453,11 @@ fn slice_sub_assign(lhs : &mut [u32], rhs: &[u32]){
 #[cfg(test)]
 mod iterative_conversion_impl_tests{
     use super::*;
+    use rand::RngCore;
+    use rand_xoshiro::rand_core::SeedableRng;
+    use rand_xoshiro::Xoshiro256Plus;
 
+    /// Tests specifically the case that will_overflow is true.
     #[test]
     fn knuth_add_back_test(){
         let mut dividend = ArbitraryBytes::new([
@@ -482,5 +484,64 @@ mod iterative_conversion_impl_tests{
         let result = dividend.rem_assign_with_quotient(&divisor);
         assert_eq!(dividend.0, [0,0,0,0,0,0,0,2]);
         assert_eq!(result.0, [0,0,0,u32::MAX,u32::MAX, u32::MAX, u32::MAX, u32::MAX]);
+    }
+
+
+    fn prepare_many_numbers() -> Vec<(ArbitraryBytes<5>,ArbitraryBytes<5>, u128, u128)>{
+        let mut rng = Xoshiro256Plus::seed_from_u64(0);
+        let mut res = Vec::new();
+        for _i in 0..1000000 {
+            let dx = rng.next_u32() % 3 + 2; //at least 2 digits, at max 4 (u128)
+            let dy = rng.next_u32() % 3 + 2;
+            let ds = dx.min(dy);
+            let dl = dx.max(dy);
+            let dividendx = [
+                0,
+                if dl == 4 { rng.next_u32() } else { 0 },
+                if dl >=3 { rng.next_u32() } else {0},
+                rng.next_u32(),
+                rng.next_u32(),
+            ];
+            let divisorx = [
+                0,
+                if ds == 4 { rng.next_u32() } else { 0 },
+                if ds >=3 { rng.next_u32() } else {0},
+                rng.next_u32(),
+                rng.next_u32(),
+            ];
+            let needs_swap = ds == dl && dividendx[5-ds as usize] < divisorx[5-ds as usize];
+            let dividend = ArbitraryBytes::new(if needs_swap { divisorx } else {dividendx});
+            let divisor = ArbitraryBytes::new(if needs_swap {dividendx} else {divisorx});
+            assert!(dividend.ge(&divisor));
+
+            let td = 
+                ((dividend.0[1] as u128)<<96)
+              + ((dividend.0[2] as u128)<<64)
+              + ((dividend.0[3] as u128)<<32)
+              + (dividend.0[4] as u128);
+            let tn = 
+                ((divisor.0[1] as u128)<<96)
+              + ((divisor.0[2] as u128)<<64)
+              + ((divisor.0[3] as u128)<<32)
+              + (divisor.0[4] as u128);
+
+
+            res.push((dividend, divisor, td/tn, td%tn));
+        }
+        res
+    }
+
+    /// Just tests a bunch of procedurally generated numbers (all within u128 for easy comparison.)
+    #[test]
+    fn knuth_many_numbers_test() {
+        let input = prepare_many_numbers();
+        for (mut dividend, divisor, expected_quotient, expexted_remainder) in input {
+            let quotient = dividend.rem_assign_with_quotient_knuth(&divisor);
+            let remainder = dividend;
+            let quotient = ((quotient.0[1] as u128)<<(96)) + ((quotient.0[2] as u128)<<64) + ((quotient.0[3] as u128)<<32) + (quotient.0[4] as u128);
+            let remainder = ((remainder.0[1] as u128)<<(96)) + ((remainder.0[2] as u128)<<64) + ((remainder.0[3] as u128)<<32) + (remainder.0[4] as u128);
+            assert_eq!(quotient, expected_quotient);
+            assert_eq!(remainder, expexted_remainder);
+        }
     }
 }
