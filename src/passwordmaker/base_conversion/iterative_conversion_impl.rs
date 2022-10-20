@@ -310,49 +310,41 @@ impl<const N : usize> SubAssign<&ArbitraryBytes<N>> for ArbitraryBytes<N>{
     }
 }
 
+macro_rules! make_div_assign_with_remainder {
+    ($name:ident, $t_divisor:ty, $t_long:ty) => {
+        /// Replaces self with Quotient and returns Remainder
+        fn $name(&mut self, rhs: &$t_divisor) -> $t_divisor {
+            debug_assert!((<$t_long>::MAX >> 32) as u128 >= <$t_divisor>::MAX as u128);
+
+            let divisor = *rhs as $t_long;
+            let remainder = self.0.iter_mut().fold(0 as $t_long,|carry, current| {
+                debug_assert_eq!(carry, carry & (<$t_divisor>::MAX as $t_long)); //carry has to be lower than divisor, and divisor is $t_divisor.
+                let carry_shifted = carry << 32;
+                let dividend = (carry_shifted) | (*current as $t_long);
+                let remainder = dividend % divisor;
+                let ratio = dividend / divisor;
+                debug_assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
+                *current = (ratio) as u32; 
+                remainder
+            });
+            debug_assert_eq!(remainder, remainder & (<$t_divisor>::MAX as $t_long));
+            remainder as $t_divisor
+        }
+    };
+}
 
 impl<const N : usize> ArbitraryBytes<N>{
     pub(super) fn new(data : [u32;N]) -> Self {
         ArbitraryBytes(data)
     }
 
-    /// Replaces self with Quotient and returns Remainder
-    fn div_assign_with_remainder_usize(&mut self, rhs: &usize) -> usize {
-        #[cfg(target_pointer_width = "64")]
-        type UsizeAndFour = u128;
-        #[cfg(not(target_pointer_width = "64"))]
-        type UsizeAndFour = u64;
-        debug_assert!((UsizeAndFour::MAX >> 32) as u128 >= usize::MAX as u128);
+    #[cfg(target_pointer_width = "64")]
+    make_div_assign_with_remainder!(div_assign_with_remainder_usize, usize, u128);
 
-        let divisor : UsizeAndFour = *rhs as UsizeAndFour;
-        let remainder = self.0.iter_mut().fold(0 as UsizeAndFour,|carry, current| {
-            debug_assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry has to be lower than divisor, and divisor is usize.
-            let carry_shifted = carry << 32;
-            let dividend = (carry_shifted) + (*current as UsizeAndFour);
-            let ratio = dividend / divisor;
-            debug_assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
-            *current = (ratio) as u32; 
-            dividend - ratio * divisor
-        });
-        debug_assert_eq!(remainder, remainder & (usize::MAX as UsizeAndFour));
-        remainder as usize
-    }
+    #[cfg(not(target_pointer_width = "64"))]
+    make_div_assign_with_remainder!(div_assign_with_remainder_usize, usize, u64);
 
-    /// Used in rem_assign_with_quotient_knuth. The normalization factor is u32, and u32 might be larger than usize.
-    fn div_assign_with_remainder_u32(&mut self, rhs: &u32) -> u32 {
-        let divisor : u64 = *rhs as u64;
-        let remainder = self.0.iter_mut().fold(0_u64,|carry, current| {
-            debug_assert_eq!(carry, carry & (u32::MAX as u64)); //carry has to be lower than divisor, and divisor is usize.
-            let carry_shifted = carry << 32;
-            let dividend = (carry_shifted) + (*current as u64);
-            let ratio = dividend / divisor;
-            debug_assert_eq!(ratio, ratio & 0xffff_ffff); //this is fine. The first digit after re-adding the carry is alwys zero.
-            *current = (ratio) as u32; 
-            dividend - ratio * divisor
-        });
-        debug_assert_eq!(remainder, remainder & (u32::MAX as u64));
-        remainder as u32
-    }
+    make_div_assign_with_remainder!(div_assign_with_remainder_u32, u32, u64);
 
     fn rem_assign_with_quotient_u32(&mut self, divisor: &u32) -> Self where Self : for<'a> From<&'a u32> {
         let remainder = self.div_assign_with_remainder_u32(divisor);
@@ -569,5 +561,13 @@ mod iterative_conversion_impl_tests{
             assert_eq!(quotient, expected_quotient);
             assert_eq!(remainder, expexted_remainder);
         }
+    }
+
+    #[test]
+    fn sub_assign_test() {
+        let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
+        let b = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        a.sub_assign(&b);
+        assert_eq!(a.0, [0x6CA2C267,0xb414f734,0xb30ddbf2,0x35b61c9c,0x4fd97562]);
     }
 }
