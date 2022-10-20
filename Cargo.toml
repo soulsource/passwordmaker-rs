@@ -28,5 +28,17 @@ rand = "0.8.5"
 rand_xoshiro = "0.6.0"
 
 [[bench]]
-name = "hashrate"
+name = "hashrate_32"
+harness = false
+
+[[bench]]
+name = "hashrate_20"
+harness = false
+
+[[bench]]
+name = "hashrate_16"
+harness = false
+
+[[bench]]
+name = "leet"
 harness = false
