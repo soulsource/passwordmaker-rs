@@ -10,7 +10,7 @@
 //let's start with the simple case: u128
 //we do need a NewType here, because actual u128 already has a Mul<&usize> implementation that does not match the version we want.
 
-use std::{ops::{DivAssign, Mul, SubAssign}, convert::{TryFrom, TryInto}, fmt::Display, error::Error, cmp::Ordering};
+use std::{ops::{DivAssign, Mul, SubAssign}, convert::{TryFrom, TryInto}, fmt::Display, error::Error, cmp::Ordering, iter::once};
 
 use super::iterative_conversion::RemAssignWithQuotient;
 
@@ -441,13 +441,7 @@ impl<const N : usize> ArbitraryBytes<N>{
         debug_assert!(s < 32);
         let mut res = self.pad_with_a_zero();
         if s != 0{
-            let _ = res.0.iter_mut().rev().fold(0u32,|carry, val| {
-                let c = *val >> (32 - s);
-                *val <<= s;
-                debug_assert!(*val & carry == 0);
-                *val += carry;
-                c
-            });
+            res.0.iter_mut().zip(self.0.iter().chain(once(&0))).for_each(|(current, next)| *current = (*current << s) | (*next >> (32-s)));
         }
         res
     }
@@ -459,7 +453,7 @@ impl<const N : usize> ArbitraryBytes<N>{
                 let c = *val << (32-s);
                 *val >>= s;
                 debug_assert!(*val & carry == 0);
-                *val += carry;
+                *val |= carry;
                 c
             });
         }
@@ -522,7 +516,7 @@ mod iterative_conversion_impl_tests{
     fn prepare_many_numbers() -> Vec<(ArbitraryBytes<5>,ArbitraryBytes<5>, u128, u128)>{
         let mut rng = Xoshiro256Plus::seed_from_u64(0);
         let mut res = Vec::new();
-        for _i in 0..10000000 {
+        for _i in 0..1000000 {
             let dx = rng.next_u32() % 3 + 2; //at least 2 digits, at max 4 (u128)
             let dy = rng.next_u32() % 3 + 2;
             let ds = dx.min(dy);
