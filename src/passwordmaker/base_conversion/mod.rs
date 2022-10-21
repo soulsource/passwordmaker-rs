@@ -9,8 +9,6 @@ mod iterative_conversion_impl;
 /// Converts an input to a different base (which fits in usize). Returns the digits starting at the most significant one.
 pub(super) trait BaseConversion {
     type Output : ExactSizeIterator<Item=usize>;
-    // return type is subject to change. Hopefully soon the math will be rewritten, so we can skip the Vec and IntoIter.
-    // will have to remain an ExactSizeIterator though.
     fn convert_to_base(self, base : usize) -> Self::Output;
 }
 

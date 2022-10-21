@@ -59,6 +59,14 @@ impl Mul<&usize> for &SixteenBytes{
     }
 }
 
+impl Mul<&SixteenBytes> for &SixteenBytes{
+    type Output = Option<SixteenBytes>;
+
+    fn mul(self, rhs: &SixteenBytes) -> Self::Output {
+        self.0.checked_mul(rhs.0).map(Into::into)
+    }
+}
+
 //--------------------------------------------------------------------------------------------------------------------------------------
 //and now the hard part: The same for [u32;N].
 //We cannot directly implement all the Foreign traits on arrays directly. So, newtypes again.
@@ -250,6 +258,33 @@ impl<const N : usize> Mul<&usize> for &ArbitraryBytes<N>{
             Some(ArbitraryBytes(result))
         }
     }
+}
+
+impl<const N : usize> Mul<&ArbitraryBytes<N>> for &ArbitraryBytes<N> where ArbitraryBytes<N> : for<'a> From<&'a usize> {
+    type Output = Option<ArbitraryBytes<N>>;
+    ///School method for now. Just to see if this is any fast.
+    fn mul(self, rhs: &ArbitraryBytes<N>) -> Self::Output {
+        let mut result : ArbitraryBytes<N> = (&0_usize).into();
+        let no_overflow = rhs.0.iter().enumerate().filter(|(_,b)| **b != 0).try_for_each(|(i,b)|{
+            let p : Option<ArbitraryBytes<N>> = self.clone() * *b;
+            let p = p.filter(|p| p.0[0..(N-1-i)].iter().all(|&i| i == 0));
+            let carry = p.map(|p|{
+                //for some reason it's faster to use slices than iterators here.
+                add_assign_slice(&mut result.0[0..(i+1)], &p.0[(N-1-i)..])
+            });
+            carry.filter(|x| *x == 0).map(|_|())
+        });
+        no_overflow.map(|_| result)
+    }
+}
+
+fn add_assign_slice(lhs : &mut [u32], rhs : &[u32]) -> u32 {
+    debug_assert_eq!(lhs.len(), rhs.len());
+    lhs.iter_mut().zip(rhs.iter()).rev().fold(0, |carry, (a, b)| {
+        let s = (*a as u64) + (*b as u64) + carry;
+        *a = s as u32;
+        s >> 32
+    }) as u32
 }
 
 impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<N> 
@@ -569,5 +604,63 @@ mod iterative_conversion_impl_tests{
         let b = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
         a.sub_assign(&b);
         assert_eq!(a.0, [0x6CA2C267,0xb414f734,0xb30ddbf2,0x35b61c9c,0x4fd97562]);
+    }
+
+    #[test]
+    fn mul_arbitrary_test(){
+        let a = ArbitraryBytes::new([0,0,0,0x47ea7314,0xfba75574]);
+        let b = ArbitraryBytes::new([0,0,0,0x12345678,0xabcde012]);
+        let a_big = (0x47ea7314_u128 << 32) | 0xfba75574u128;
+        let b_big = (0x12345678_u128 << 32) | 0xabcde012u128;
+        let c_big = a_big*b_big;
+        let c = (&a * &b).unwrap();
+        assert_eq!(c_big & 0xffff_ffff, c.0[4] as u128 );
+        assert_eq!((c_big >> 32 ) & 0xffff_ffff, c.0[3] as u128);
+        assert_eq!((c_big >> 64 ) & 0xffff_ffff, c.0[2] as u128);
+        assert_eq!((c_big >> 96 ) & 0xffff_ffff, c.0[1] as u128);
+        assert_eq!(0, c.0[0]);
+    }
+    #[test]
+    fn mul_arbitrary_test_2(){
+        let a = ArbitraryBytes::new([0x2763ac9f,0xd1ae1f38,0x1753a5c7,0x47ea7314,0xfba75574]);
+        let b = ArbitraryBytes::new([0,0,0,0,2]);
+        let c = (&a * &b).unwrap();
+        assert_eq!(0x4EC7593F, c.0[0]);
+        assert_eq!(0xA35C3E70, c.0[1]);
+        assert_eq!(2*0x1753a5c7, c.0[2]);
+        assert_eq!(0x8fd4e629, c.0[3]);
+        assert_eq!(0xf74eaae8, c.0[4]);
+    }
+    #[test]
+    fn mul_arbitrary_test_3(){
+        let a = ArbitraryBytes::new([0,0,0,0,2]);
+        let b = ArbitraryBytes::new([0x2763ac9f,0xd1ae1f38,0x1753a5c7,0x47ea7314,0xfba75574]);
+        let c = (&a * &b).unwrap();
+        assert_eq!(0x4EC7593F, c.0[0]);
+        assert_eq!(0xA35C3E70, c.0[1]);
+        assert_eq!(2*0x1753a5c7, c.0[2]);
+        assert_eq!(0x8fd4e629, c.0[3]);
+        assert_eq!(0xf74eaae8, c.0[4]);
+    }
+    #[test]
+    fn mul_arbitrary_test_4(){
+        let a = ArbitraryBytes::new([0,0,0,0,8]);
+        let b = ArbitraryBytes::new([0x2763ac9f,0xd1ae1f38,0x1753a5c7,0x47ea7314,0xfba75574]);
+        let c = &a * &b;
+        assert!(c.is_none())
+    }
+    #[test]
+    fn mul_arbitrary_test_5(){
+        let a = ArbitraryBytes::new([0,0,0,1,0]);
+        let b = ArbitraryBytes::new([0x2763ac9f,0xd1ae1f38,0x1753a5c7,0x47ea7314,0xfba75574]);
+        let c = &a * &b;
+        assert!(c.is_none())
+    }
+    #[test]
+    fn mul_arbitrary_test_6(){
+        let a = ArbitraryBytes::new([0,0,0,1,1]);
+        let b = ArbitraryBytes::new([0,0xffffffff,0x1753a5c7,0x47ea7314,0xfba75574]);
+        let c = &a * &b;
+        assert!(c.is_none())
     }
 }

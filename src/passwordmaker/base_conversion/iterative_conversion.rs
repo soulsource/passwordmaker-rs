@@ -21,7 +21,8 @@ pub(crate) struct IterativeBaseConversion<V,B>{
 
 impl<V,B> IterativeBaseConversion<V,B> 
     where V: for<'a> From<&'a B>,                           //could be replaced by num::traits::identities::One.
-          for<'a> &'a V : Mul<&'a B, Output = Option<V>>    //used to get the first current_base_potency.
+          for<'a> &'a V : Mul<&'a B, Output = Option<V>> +  //used to get the first current_base_potency.
+                          Mul<&'a V, Output = Option<V>>
 {
     pub(super) fn new(value : V, base : B) -> Self{
         let PotencyAndExponent{potency : current_base_potency, count : remaining_digits} = Self::find_highest_fitting_potency(&base);
@@ -34,14 +35,17 @@ impl<V,B> IterativeBaseConversion<V,B>
     }
 
     fn find_highest_fitting_potency(base : &B) -> PotencyAndExponent<V> {
-        //If we also required B: Mul<V> the new() function could be made a bit faster by going base^2 -> base^4 -> base^8 -> and so on.
-        //However, for realistic inputs, we have just about 100 multiplications, so, gut feeling says: simple === faster.
         let base_v = base.into();
-        let result = successors(Some(base_v), |potency| potency * base)
-            .enumerate()
+
+        let exp_result = successors(Some((base_v, 1)), |(p, e)| {
+            Some(((p*p)?, 2*e))
+        }).last();
+
+
+        let result = successors(exp_result, |(potency, count)| (potency * base).map(|v| (v, count +1)))
             .last()
             .expect("Cannot fail, first entry is Some (required V : From<B>) and there's no filtering.");
-        PotencyAndExponent{ potency : result.1, count : result.0 + 2 }
+        PotencyAndExponent{ potency : result.0, count : result.1 + 1 }
     }
 }
 
@@ -99,6 +103,13 @@ mod iterative_conversion_tests{
         fn mul(self, rhs: &u64) -> Self::Output {
             self.0.checked_mul(*rhs as u128).map(|s| MyU128(s))
         }
+    }
+
+    impl Mul<&MyU128> for &MyU128 {
+        type Output = Option<MyU128>;
+        fn mul(self, rhs: &MyU128) -> Self::Output {
+            self.0.checked_mul(rhs.0).map(|s| MyU128(s))
+     }
     }
 
     impl RemAssignWithQuotient for MyU128{
