@@ -84,7 +84,7 @@ struct PotencyAndExponent<V>{
     count : usize,
 }
 
-pub(super) trait RemAssignWithQuotient{
+pub(crate) trait RemAssignWithQuotient{
     /// Replaces self with remainder of division, and returns quotient.
     fn rem_assign_with_quotient(&mut self, divisor : &Self) -> Self;
 }

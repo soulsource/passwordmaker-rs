@@ -130,7 +130,7 @@ impl From<&u32> for ArbitraryBytes<8>{
 }
 
 //workaround for lack of proper const-generic support.
-pub(super) trait PadWithAZero{
+pub(crate) trait PadWithAZero{
     type Output;
     fn pad_with_a_zero(&self) -> Self::Output;
 }
