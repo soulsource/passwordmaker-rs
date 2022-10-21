@@ -10,7 +10,7 @@
 //let's start with the simple case: u128
 //we do need a NewType here, because actual u128 already has a Mul<&usize> implementation that does not match the version we want.
 
-use std::{ops::{DivAssign, Mul, SubAssign}, convert::{TryFrom, TryInto}, fmt::Display, error::Error, cmp::Ordering, iter::once};
+use std::{ops::{DivAssign, Mul}, convert::{TryFrom, TryInto}, fmt::Display, error::Error, cmp::Ordering, iter::once};
 
 use super::iterative_conversion::RemAssignWithQuotient;
 
@@ -202,7 +202,7 @@ impl<const N : usize> TryFrom<&ArbitraryBytes<N>> for usize{
             let last_bit = value.0.get(N-1).ok_or(ArbitraryBytesToUsizeError).map(|x| *x as usize);
             //second-last is not an error though.
             let second_last_bit = value.0.get(N-2).map(|u| (*u as usize) << 32).unwrap_or_default();
-            last_bit.map(|last_bit| last_bit + second_last_bit)
+            last_bit.map(|last_bit| last_bit | second_last_bit)
         }
     }
     #[cfg(not(target_pointer_width = "64"))]
@@ -232,37 +232,47 @@ impl<const N : usize> TryFrom<&ArbitraryBytes<N>> for u32{
         if value.0[0..N.saturating_sub(1)].iter().any(|x| *x != 0) {
             Err(ArbitraryBytesToU32Error)
         } else {
-            value.0.get(N-1).and_then(|x| (*x).try_into().ok()).ok_or(ArbitraryBytesToU32Error)
+            value.0.get(N-1).copied().ok_or(ArbitraryBytesToU32Error)
         }
     }
 }
 
+macro_rules! make_mul {
+    ($t:ty, $long_t:ty) => {
+        impl<const N : usize> Mul<$t> for ArbitraryBytes<N>{
+            type Output = Option<ArbitraryBytes<N>>;
+            fn mul(mut self, rhs: $t) -> Self::Output {
+                let carry = self.0.iter_mut().rev().fold(<$long_t>::default(), |carry, digit|{
+                    debug_assert_eq!(carry, carry & (<$t>::MAX as $long_t)); //carry always has to fit in usize, otherwise something is terribly wrong.
+                    let res = (*digit as $long_t) * (rhs as $long_t) + carry;
+                    *digit = res as u32;
+                    res >> 32
+                });
+                if carry != 0 { //if there's still carry after we hit the last digit, well, didn't fit obviously.
+                    None
+                } else {
+                    Some(self)
+                }
+            }
+        }
+    };
+}
+make_mul!(u32,u64);
+#[cfg(target_pointer_width = "64")]
+make_mul!(usize, u128);
+#[cfg(not(target_pointer_width = "64"))]
+make_mul!(usize, u64);
+
 impl<const N : usize> Mul<&usize> for &ArbitraryBytes<N>{
     type Output = Option<ArbitraryBytes<N>>;
     fn mul(self, rhs: &usize) -> Self::Output {
-        #[cfg(target_pointer_width = "64")]
-        type UsizeAndFour = u128;
-        #[cfg(not(target_pointer_width = "64"))]
-        type UsizeAndFour = u64;
-        //somewhere we need this clone, can just as well be in here...
-        let mut result = self.0.clone();
-        let carry = result.iter_mut().rev().fold(UsizeAndFour::default(), |carry, digit|{
-            debug_assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry always has to fit in usize, otherwise something is terribly wrong.
-            let res = (*digit as UsizeAndFour) * (*rhs as UsizeAndFour) + carry;
-            *digit = res as u32;
-            res >> 32
-        });
-        if carry != 0 { //if there's still carry after we hit the last digit, well, didn't fit obviously.
-            None
-        } else {
-            Some(ArbitraryBytes(result))
-        }
+        (*self).clone() * (*rhs)
     }
 }
 
 impl<const N : usize> Mul<&ArbitraryBytes<N>> for &ArbitraryBytes<N> where ArbitraryBytes<N> : for<'a> From<&'a usize> {
     type Output = Option<ArbitraryBytes<N>>;
-    ///School method for now. Just to see if this is any fast.
+    ///School method. I haven't tried Karatsuba, but rule of thumb is that it only gets faster at about 32 digits. We have 8 digits max.
     fn mul(self, rhs: &ArbitraryBytes<N>) -> Self::Output {
         let mut result : ArbitraryBytes<N> = (&0_usize).into();
         let no_overflow = rhs.0.iter().enumerate().filter(|(_,b)| **b != 0).try_for_each(|(i,b)|{
@@ -270,21 +280,12 @@ impl<const N : usize> Mul<&ArbitraryBytes<N>> for &ArbitraryBytes<N> where Arbit
             let p = p.filter(|p| p.0[0..(N-1-i)].iter().all(|&i| i == 0));
             let carry = p.map(|p|{
                 //for some reason it's faster to use slices than iterators here.
-                add_assign_slice(&mut result.0[0..(i+1)], &p.0[(N-1-i)..])
+                slice_add_assign(&mut result.0[0..(i+1)], &p.0[(N-1-i)..])
             });
-            carry.filter(|x| *x == 0).map(|_|())
+            carry.filter(|x| !x).map(|_|())
         });
         no_overflow.map(|_| result)
     }
-}
-
-fn add_assign_slice(lhs : &mut [u32], rhs : &[u32]) -> u32 {
-    debug_assert_eq!(lhs.len(), rhs.len());
-    lhs.iter_mut().zip(rhs.iter()).rev().fold(0, |carry, (a, b)| {
-        let s = (*a as u64) + (*b as u64) + carry;
-        *a = s as u32;
-        s >> 32
-    }) as u32
 }
 
 impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<N> 
@@ -296,11 +297,12 @@ impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<
         //non-performing restoring version of the algorithm is used, because I'm too tired right now
         //to properly implement the performing one (which would with near certainty be faster a bit).
         
-        //well, nearly without trying to be smart.
+        //First, check if we can get away without doing a division.
         match Ord::cmp(self, divisor){
             std::cmp::Ordering::Less => Self::from(&0_usize), //leave self unchanged, it's the remainder.
             std::cmp::Ordering::Equal => { *self = Self::from(&0_usize); Self::from(&1_usize) },
             std::cmp::Ordering::Greater => {
+                //If a single digit division suffices, do a single digit division.
                 if let Ok(divisor_as_u32) = divisor.try_into() {
                     self.rem_assign_with_quotient_u32(&divisor_as_u32)
                 } else {
@@ -308,40 +310,6 @@ impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<
                 }
             },
         }
-    }
-}
-
-/// Needed by rem_assign_with_quotient_knuth
-impl<const N : usize> Mul<u32> for ArbitraryBytes<N>{
-    type Output = Option<ArbitraryBytes<N>>;
-    fn mul(mut self, rhs: u32) -> Self::Output {
-        let carry = self.0.iter_mut().rev().fold(u64::default(), |carry, digit|{
-            debug_assert_eq!(carry, carry & (u32::MAX as u64)); //carry always has to fit in usize, otherwise something is terribly wrong.
-            let res = (*digit as u64) * (rhs as u64) + carry;
-            *digit = res as u32;
-            res >> 32
-        });
-        if carry != 0 { //if there's still carry after we hit the last digit, well, didn't fit obviously.
-            None
-        } else {
-            Some(self)
-        }
-    }
-}
-
-impl<const N : usize> SubAssign<&ArbitraryBytes<N>> for ArbitraryBytes<N>{
-    fn sub_assign(&mut self, rhs: &ArbitraryBytes<N>) {
-        let carry = self.0.iter_mut().zip(rhs.0.iter()).rev().fold(0_u64,|carry,(i,s)| {
-            let s = (*s as u64) + carry;
-            if *i as u64 >= s {
-                *i -= s as u32;
-                0
-            } else {
-                *i = (((*i as u64) + (1_u64<<32)) - s) as u32;
-                1
-            }
-        });
-        debug_assert_eq!(carry,0);
     }
 }
 
@@ -437,7 +405,7 @@ impl<const N : usize> ArbitraryBytes<N>{
                 std::cmp::PartialOrd::lt(&dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]);
             if will_overflow {
                 guesstimate -= 1;
-                s -= &divisor;
+                slice_sub_assign(&mut s.0, &divisor.0);
                 debug_assert!(std::cmp::Ord::cmp(&dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]) != Ordering::Less)
             }
             slice_sub_assign(&mut dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]);
@@ -488,19 +456,29 @@ impl<const N : usize> ArbitraryBytes<N>{
     }
 }
 
-fn slice_sub_assign(lhs : &mut [u32], rhs: &[u32]){
+fn slice_sub_assign(lhs : &mut [u32], rhs: &[u32]) -> bool{
     debug_assert_eq!(lhs.len(), rhs.len());
-    let carry = lhs.iter_mut().zip(rhs.iter()).rev().fold(0_u64,|carry,(i,s)| {
-        let s = (*s as u64) + carry;
-        if *i as u64 >= s {
+    lhs.iter_mut().zip(rhs.iter()).rev().fold(false,|carry,(i,s)| {
+        //don't ask me why, but this branching monstrosity seems faster than checked_add(), overflowing_sub()...
+        let (s, overflow) = s.overflowing_add(carry as u32);
+        if !overflow && *i >= s {
             *i -= s as u32;
-            0
+            false
         } else {
-            *i = (((*i as u64) + (1_u64<<32)) - s) as u32;
-            1
+            *i = i.wrapping_sub(s as u32);
+            true
         }
-    });
-    debug_assert_eq!(carry,0);
+    })
+}
+
+fn slice_add_assign(lhs : &mut [u32], rhs : &[u32]) -> bool {
+    debug_assert_eq!(lhs.len(), rhs.len());
+    lhs.iter_mut().zip(rhs.iter()).rev().fold(false, |carry, (a, b)| {
+        let r = a.overflowing_add(*b);
+        let s = r.0.overflowing_add(carry as u32);
+        *a = s.0;
+        r.1 || s.1
+    })
 }
 
 #[cfg(test)]
@@ -599,11 +577,79 @@ mod iterative_conversion_impl_tests{
     }
 
     #[test]
+    fn rem_assign_with_quotient_u32_test(){
+        let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
+        let quotient = a.rem_assign_with_quotient_u32(&0x12345);
+        assert_eq!(quotient.0, [0x9A10,0xB282B7BA,0xE4948E98,0x2AE63D74,0xE6FDFF4A]);
+        assert_eq!(a.0, [0,0,0,0,0x6882]);
+    }
+
+    #[test]
     fn sub_assign_test() {
         let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
         let b = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
-        a.sub_assign(&b);
+        let carry = slice_sub_assign(&mut a.0,&b.0);
+        assert!(!carry);
         assert_eq!(a.0, [0x6CA2C267,0xb414f734,0xb30ddbf2,0x35b61c9c,0x4fd97562]);
+    }
+
+    #[test]
+    fn sub_assign_test2() {
+        let mut a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
+        let carry = slice_sub_assign(&mut a.0,&b.0);
+        assert!(carry);
+        assert_eq!(a.0, [0x935D3D98,0x4BEB08CB,0x4CF2240D,0xCA49E363,0xB0268A9E]);
+    }
+
+    #[test]
+    fn add_assign_test() {
+        let mut a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
+        let carry = slice_add_assign(&mut a.0,&b.0);
+        assert!(!carry);
+        assert_eq!(a.0, [0xF1F2406D,0xB414F734,0x4134F39C,0x5A1EC98D,0xA7753586]);
+    }
+    #[test]
+    fn add_assign_test2() {
+        let mut a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = ArbitraryBytes::new([0xbf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
+        let carry = slice_add_assign(&mut a.0,&b.0);
+        assert!(carry);
+        assert_eq!(a.0, [0x01F2406D,0xB414F734,0x4134F39C,0x5A1EC98D,0xA7753586]);
+    }
+
+    #[test]
+    fn shift_left_test() {
+        let a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = a.shift_left(7);
+        assert_eq!(b.0,[0x21, 0x53DF817F,0xFFFFFFE3, 0x89C5EA89, 0x1A2B3C55, 0xE6F00900]);
+    }
+    
+    #[test]
+    fn shift_right_test() {
+        let a = ArbitraryBytes::new([0x21, 0x53DF817F,0xFFFFFFE3, 0x89C5EA89, 0x1A2B3C55, 0xE6F00900]);
+        let b = a.shift_right(7);
+        assert_eq!(b.0,[0, 0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+    }
+
+    #[test]
+    fn get_digit_from_right_test(){
+        let a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        assert_eq!(a.get_digit_from_right(3), 0xffffffff);
+    }
+
+    #[test]
+    fn set_digit_from_right_test(){
+        let mut a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        a.set_digit_from_right(0xdeadbeef, 4);
+        assert_eq!(a.0[0], 0xdeadbeef);
+    }
+
+    #[test]
+    fn find_first_nonzero_digit_test() {
+        let a = ArbitraryBytes::new([0,0,0,0x12345678,0xabcde012]);
+        assert_eq!(a.find_first_nonzero_digit(),3);
     }
 
     #[test]
