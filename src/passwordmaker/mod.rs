@@ -186,13 +186,18 @@ impl<'a> PasswordAssemblyParameters<'a> {
 }
 
 fn combine_prefix_password_suffix<'a, T : Iterator<Item=Grapheme<'a>>>(password: T, assembly_settings : &PasswordAssemblyParameters<'a>) -> String {
-    Grapheme::iter_from_str(assembly_settings.prefix)
+    //Rust's collect only uses the lower hint for pre-allocation. UnicodeSegmentation is giving correct hints,
+    //meaning that the lower bound is 1 (or 0 for empty strings).
+    //We know however, that assembly_settings.password_length is a much better lower bound. Still too low for
+    //passwords that contain characters that take more than 1 byte though. Still, this value should reduce the number of needed re-allocations drastically.
+    let mut result = String::with_capacity(assembly_settings.password_length);
+    result.extend(Grapheme::iter_from_str(assembly_settings.prefix)
         .chain(password)
         .take(assembly_settings.password_length.saturating_sub(assembly_settings.suffix_length))
         .chain(Grapheme::iter_from_str(assembly_settings.suffix))
         .take(assembly_settings.password_length)//cut end if suffix_length is larger than password_length...
-        .map(|g| g.get())
-        .collect() 
+        .map(|g| g.get()));
+    result
 }
 
 enum GetGraphemesIteratorInner {
