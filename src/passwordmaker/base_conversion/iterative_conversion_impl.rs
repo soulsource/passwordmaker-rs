@@ -284,7 +284,7 @@ impl<const N : usize> Mul<&ArbitraryBytes<N>> for &ArbitraryBytes<N> where Arbit
             let p = p.filter(|p| p.0[0..(N-1-i)].iter().all(|&i| i == 0));
             let carry = p.map(|p|{
                 //for some reason it's faster to use slices than iterators here.
-                slice_add_assign(&mut result.0[0..(i+1)], &p.0[(N-1-i)..])
+                slice_overflowing_add_assign(&mut result.0[0..(i+1)], &p.0[(N-1-i)..])
             });
             carry.filter(|x| !x).map(|_|())
         });
@@ -297,10 +297,7 @@ impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<
 {
     fn rem_assign_with_quotient(&mut self, divisor : &Self) -> Self{
 
-        //This is based on Knuth, TAOCP vol 2 section 4.3, algorithm D. However, at least for now, a 
-        //non-performing restoring version of the algorithm is used, because I'm too tired right now
-        //to properly implement the performing one (which would with near certainty be faster a bit).
-        
+        //This is based on Knuth, TAOCP vol 2 section 4.3, algorithm D.
         //First, check if we can get away without doing a division.
         match Ord::cmp(self, divisor){
             std::cmp::Ordering::Less => Self::from(&0_usize), //leave self unchanged, it's the remainder.
@@ -358,7 +355,7 @@ impl<const N : usize> ArbitraryBytes<N>{
         std::mem::replace(self, Self::from(&remainder))
     }
     
-
+    //This is Knuth, The Art of Computer Programming Volume 2, Section 4.3, Algorithm D.
     fn rem_assign_with_quotient_knuth<const M : usize>(&mut self, divisor : &Self) -> Self
         where Self : PadWithAZero<Output = ArbitraryBytes<M>> +
                      for<'a> From<&'a usize>
@@ -399,24 +396,21 @@ impl<const N : usize> ArbitraryBytes<N>{
                 guesstimate -= 1;
                 guess_reminder += guess_divisor;
             }
-            //The (performing) version of this from the book requires more brain-power to understand than a non-performing implementation.
-            //Since the probability of guesstimate still being off by one is really low (~2^(-32)), the performance impact of non-performaing vs performing
-            //is absolutely negligible. I'd say that readability of the code is more important than such an edge-case performance gain.
+            //Step D4: Pretend the guess was correct and subtract guesstimate * divisor from dividend.
             debug_assert!(guesstimate & (u32::MAX as u64) == guesstimate, "The while above should have made guesstimate a one-digit number. Debug!");
-            //Step D5:
             let mut guesstimate = guesstimate as u32;
-            let mut s = (divisor.clone() * guesstimate).expect("Multipliation by a digit cannot overflow for a padded type.");
+            let s = (divisor.clone() * guesstimate).expect("Multipliation by a digit cannot overflow for a padded type.");
             let s_range = (M - 1 - n_digits_divisor)..M;
             let d_range = (s_range.start - j)..(s_range.end - j);
-            let will_overflow = PartialOrd::lt(&dividend.0[d_range.clone()], &s.0[s_range.clone()]);
-            //Step D6:
-            if will_overflow {
+            let did_overflow = slice_overflowing_sub_assign(&mut dividend.0[d_range.clone()], &s.0[s_range.clone()]);
+            //Step D5: If guesstimate was incorrect, the subtraction has overflown. The result is wrapped in such a case.
+            if did_overflow {
+                //Step D6: We have to correct our guesstimate. It was too large by one. We also have to fix the overflow that has occured.
                 guesstimate -= 1;
-                slice_sub_assign(&mut s.0, &divisor.0);
-                debug_assert!(!PartialOrd::lt(&dividend.0[d_range.clone()], &s.0[s_range.clone()]), "Knuth, TAOCP Vol 2, Chap 4.3.1 exercise 21 says: if this fails, the while above is wrong. Debug.")
+                //The addition must overflow again. The two overflows cancel out, and since we are using wrapping arithmetics, the result becomes correct again.
+                let did_overflow = slice_overflowing_add_assign(&mut dividend.0[d_range.clone()], &divisor.0[s_range.clone()]);
+                debug_assert!(did_overflow, "Knuth, TAOCP Vol 2, Chap 4.3.1 exercise 21 says: if this fails, the while above is wrong. Debug.")
             }
-            //Step D4:
-            slice_sub_assign(&mut dividend.0[d_range], &s.0[s_range]);
             quotient.set_digit_from_right(guesstimate, j);
         }
 
@@ -464,7 +458,7 @@ impl<const N : usize> ArbitraryBytes<N>{
     }
 }
 
-fn slice_sub_assign(lhs : &mut [u32], rhs: &[u32]) -> bool{
+fn slice_overflowing_sub_assign(lhs : &mut [u32], rhs: &[u32]) -> bool{
     debug_assert_eq!(lhs.len(), rhs.len());
     lhs.iter_mut().zip(rhs.iter()).rev().fold(false,|carry,(a,b)| {
         let r = b.overflowing_add(carry as u32);
@@ -474,7 +468,7 @@ fn slice_sub_assign(lhs : &mut [u32], rhs: &[u32]) -> bool{
     })
 }
 
-fn slice_add_assign(lhs : &mut [u32], rhs : &[u32]) -> bool {
+fn slice_overflowing_add_assign(lhs : &mut [u32], rhs : &[u32]) -> bool {
     debug_assert_eq!(lhs.len(), rhs.len());
     lhs.iter_mut().zip(rhs.iter()).rev().fold(false, |carry, (a, b)| {
         let r = b.overflowing_add(carry as u32);
@@ -597,7 +591,7 @@ mod iterative_conversion_impl_tests{
     fn sub_assign_test() {
         let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
         let b = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
-        let carry = slice_sub_assign(&mut a.0,&b.0);
+        let carry = slice_overflowing_sub_assign(&mut a.0,&b.0);
         assert!(!carry);
         assert_eq!(a.0, [0x6CA2C267,0xb414f734,0xb30ddbf2,0x35b61c9c,0x4fd97562]);
     }
@@ -606,7 +600,7 @@ mod iterative_conversion_impl_tests{
     fn sub_assign_test2() {
         let mut a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
         let b = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
-        let carry = slice_sub_assign(&mut a.0,&b.0);
+        let carry = slice_overflowing_sub_assign(&mut a.0,&b.0);
         assert!(carry);
         assert_eq!(a.0, [0x935D3D98,0x4BEB08CB,0x4CF2240D,0xCA49E363,0xB0268A9E]);
     }
@@ -615,7 +609,7 @@ mod iterative_conversion_impl_tests{
     fn add_assign_test() {
         let mut a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
         let b = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
-        let carry = slice_add_assign(&mut a.0,&b.0);
+        let carry = slice_overflowing_add_assign(&mut a.0,&b.0);
         assert!(!carry);
         assert_eq!(a.0, [0xF1F2406D,0xB414F734,0x4134F39C,0x5A1EC98D,0xA7753586]);
     }
@@ -623,7 +617,7 @@ mod iterative_conversion_impl_tests{
     fn add_assign_test2() {
         let mut a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
         let b = ArbitraryBytes::new([0xbf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
-        let carry = slice_add_assign(&mut a.0,&b.0);
+        let carry = slice_overflowing_add_assign(&mut a.0,&b.0);
         assert!(carry);
         assert_eq!(a.0, [0x01F2406D,0xB414F734,0x4134F39C,0x5A1EC98D,0xA7753586]);
     }
