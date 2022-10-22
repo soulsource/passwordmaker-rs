@@ -10,7 +10,11 @@
 //let's start with the simple case: u128
 //we do need a NewType here, because actual u128 already has a Mul<&usize> implementation that does not match the version we want.
 
-use std::{ops::{DivAssign, Mul}, convert::{TryFrom, TryInto}, fmt::Display, error::Error, cmp::Ordering, iter::once};
+use std::ops::{DivAssign, Mul};
+use std::convert::{TryFrom, TryInto};
+use std::fmt::Display;
+use std::error::Error;
+use std::iter::once;
 
 use super::iterative_conversion::RemAssignWithQuotient;
 
@@ -199,10 +203,10 @@ impl<const N : usize> TryFrom<&ArbitraryBytes<N>> for usize{
             Err(ArbitraryBytesToUsizeError)
         } else {
             //failing to get last_bit is an actual error.
-            let last_bit = value.0.get(N-1).ok_or(ArbitraryBytesToUsizeError).map(|x| *x as usize);
+            let last_bit = value.0.get(N-1).ok_or(ArbitraryBytesToUsizeError).copied();
             //second-last is not an error though.
-            let second_last_bit = value.0.get(N-2).map(|u| (*u as usize) << 32).unwrap_or_default();
-            last_bit.map(|last_bit| last_bit | second_last_bit)
+            let second_last_bit = value.0.get(N-2).copied().unwrap_or_default();
+            last_bit.map(|last_bit| u64_from_u32s(second_last_bit, last_bit) as usize)
         }
     }
     #[cfg(not(target_pointer_width = "64"))]
@@ -376,39 +380,43 @@ impl<const N : usize> ArbitraryBytes<N>{
 
         let mut quotient : Self = (&0_usize).into();
 
-        //needed for Step D3.
+        //needed for Step D3, but is the same for all iterations -> factored out.
         let guess_divisor = divisor.get_digit_from_right(n_digits_divisor - 1) as u64;
         let divisor_second_significant_digit = divisor.get_digit_from_right(n_digits_divisor-2) as u64;
 
         //step D2, D7: the loop.
         for j in (0..=m_extra_digits_dividend).rev() {
             //Step D3: Guess a digit
-            let guess_dividend = ((dividend.get_digit_from_right(j+n_digits_divisor) as u64)<<32) + (dividend.get_digit_from_right(j + n_digits_divisor - 1) as u64);
+            let guess_dividend = u64_from_u32s(dividend.get_digit_from_right(j+n_digits_divisor), dividend.get_digit_from_right(j + n_digits_divisor - 1));
             let mut guesstimate = guess_dividend/guess_divisor;
             let mut guess_reminder = guess_dividend % guess_divisor;
-            //refine this result (still step D3)
+            //refine our guesstimate (still step D3). Ensures that error of guesstimate is either 0 or +1.
             while guess_reminder <= u32::MAX as u64
                 && (guesstimate > u32::MAX as u64
                     || divisor_second_significant_digit * guesstimate
-                        > (guess_reminder << 32) + (dividend.get_digit_from_right(j + n_digits_divisor - 2) as u64)
+                        > (guess_reminder << 32) | (dividend.get_digit_from_right(j + n_digits_divisor - 2) as u64)
                 ) {
                 guesstimate -= 1;
                 guess_reminder += guess_divisor;
             }
-            //I'm too tired to do this by the book. If this thing is gonna blow, we can just as well increase our guesstimate by one and call it a day.
-            //In any case, this does only happen in _very_ rare cases. Soo:
-            //Steps D4-D6.
-            debug_assert!(guesstimate & (u32::MAX as u64) == guesstimate); //Knuth says this is a one-place number, and I trust him.
+            //The (performing) version of this from the book requires more brain-power to understand than a non-performing implementation.
+            //Since the probability of guesstimate still being off by one is really low (~2^(-32)), the performance impact of non-performaing vs performing
+            //is absolutely negligible. I'd say that readability of the code is more important than such an edge-case performance gain.
+            debug_assert!(guesstimate & (u32::MAX as u64) == guesstimate, "The while above should have made guesstimate a one-digit number. Debug!");
+            //Step D5:
             let mut guesstimate = guesstimate as u32;
             let mut s = (divisor.clone() * guesstimate).expect("Multipliation by a digit cannot overflow for a padded type.");
-            let will_overflow = 
-                std::cmp::PartialOrd::lt(&dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]);
+            let s_range = (M - 1 - n_digits_divisor)..M;
+            let d_range = (s_range.start - j)..(s_range.end - j);
+            let will_overflow = PartialOrd::lt(&dividend.0[d_range.clone()], &s.0[s_range.clone()]);
+            //Step D6:
             if will_overflow {
                 guesstimate -= 1;
                 slice_sub_assign(&mut s.0, &divisor.0);
-                debug_assert!(std::cmp::Ord::cmp(&dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]) != Ordering::Less)
+                debug_assert!(!PartialOrd::lt(&dividend.0[d_range.clone()], &s.0[s_range.clone()]), "Knuth, TAOCP Vol 2, Chap 4.3.1 exercise 21 says: if this fails, the while above is wrong. Debug.")
             }
-            slice_sub_assign(&mut dividend.0[(M - 1 - (j+n_digits_divisor))..=(M - 1 - j)], &s.0[(M - 1 - n_digits_divisor)..=(M - 1)]);
+            //Step D4:
+            slice_sub_assign(&mut dividend.0[d_range], &s.0[s_range]);
             quotient.set_digit_from_right(guesstimate, j);
         }
 
@@ -458,27 +466,28 @@ impl<const N : usize> ArbitraryBytes<N>{
 
 fn slice_sub_assign(lhs : &mut [u32], rhs: &[u32]) -> bool{
     debug_assert_eq!(lhs.len(), rhs.len());
-    lhs.iter_mut().zip(rhs.iter()).rev().fold(false,|carry,(i,s)| {
-        //don't ask me why, but this branching monstrosity seems faster than checked_add(), overflowing_sub()...
-        let (s, overflow) = s.overflowing_add(carry as u32);
-        if !overflow && *i >= s {
-            *i -= s as u32;
-            false
-        } else {
-            *i = i.wrapping_sub(s as u32);
-            true
-        }
+    lhs.iter_mut().zip(rhs.iter()).rev().fold(false,|carry,(a,b)| {
+        let r = b.overflowing_add(carry as u32);
+        let s = a.overflowing_sub(r.0);
+        *a = s.0;
+        r.1 || s.1
     })
 }
 
 fn slice_add_assign(lhs : &mut [u32], rhs : &[u32]) -> bool {
     debug_assert_eq!(lhs.len(), rhs.len());
     lhs.iter_mut().zip(rhs.iter()).rev().fold(false, |carry, (a, b)| {
-        let r = a.overflowing_add(*b);
-        let s = r.0.overflowing_add(carry as u32);
+        let r = b.overflowing_add(carry as u32);
+        let s = a.overflowing_add(r.0);
         *a = s.0;
         r.1 || s.1
     })
+}
+
+fn u64_from_u32s(msb : u32, lsb : u32) -> u64{
+    let msb = msb as u64;
+    let lsb = lsb as u64;
+    (msb << 32) | lsb
 }
 
 #[cfg(test)]
