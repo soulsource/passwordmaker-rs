@@ -1,5 +1,7 @@
 mod mock_hashers;
 
+use std::time::Duration;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use passwordmaker_rs::HashAlgorithm;
 use mock_hashers::Pwm;
@@ -61,8 +63,10 @@ fn criterion_bench_20bytes_worst_case(c: &mut Criterion) {
     }));
 }
 
-criterion_group!(benches,
-    criterion_bench_20bytes_typical,
+criterion_group!(name = benches;
+    // This can be any expression that returns a `Criterion` object.
+    config = Criterion::default().significance_level(0.02).sample_size(500).measurement_time(Duration::from_secs(10));
+    targets = criterion_bench_20bytes_typical,
     criterion_bench_20bytes_full_divide,
     criterion_bench_20bytes_worst_case,
 );
