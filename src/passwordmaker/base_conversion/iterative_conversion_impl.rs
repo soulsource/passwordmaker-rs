@@ -1,11 +1,6 @@
 //! Implementation of iterative conversion support for the types we need it for: u128 and [u32;N].
-
-//Reminder for myself: The traits needed are:
-//    where V: for<'a> From<&'a B> +                    //could be replaced by num::traits::identities::One.
-//          for<'a> DivAssign<&'a B> +                  //used between steps to go to next-lower current_base_potency
-//          RemAssignWithQuotient+                      //used to get the result of each step.
-//          TryInto<B>,                                 //used to convert the result of each step. We _know_ this cannot fail, but requiring Into would be wrong.
-//      for<'a> &'a V : Mul<&'a B, Output = Option<V>>  //used to get the first current_base_potency.
+//! Beware that all functions in this module are optimized for the use cases of passwordmaker-rs. They may or may not
+//! be suitable for anything else.
 
 //let's start with the simple case: u128
 //we do need a NewType here, because actual u128 already has a Mul<&usize> implementation that does not match the version we want.
@@ -485,7 +480,7 @@ fn u64_from_u32s(msb : u32, lsb : u32) -> u64{
 }
 
 #[cfg(test)]
-mod iterative_conversion_impl_tests{
+mod arbitrary_bytes_tests{
     use super::*;
     use rand::RngCore;
     use rand_xoshiro::rand_core::SeedableRng;
@@ -521,31 +516,35 @@ mod iterative_conversion_impl_tests{
     }
 
 
-    fn prepare_many_numbers() -> Vec<(ArbitraryBytes<5>,ArbitraryBytes<5>, u128, u128)>{
+    fn prepare_many_numbers(max_dividend_digits : u32, min_dividend_digits : u32, max_divisor_digits : u32, min_divisor_digits : u32) -> Vec<(ArbitraryBytes<5>,ArbitraryBytes<5>, u128, u128)>{
+        assert!(max_dividend_digits < 5);
+        assert!(min_dividend_digits <= max_dividend_digits);
+        assert!(max_divisor_digits < 5);
+        assert!(min_divisor_digits <= max_divisor_digits);
         let mut rng = Xoshiro256Plus::seed_from_u64(0);
         let mut res = Vec::new();
         for _i in 0..1000000 {
-            let dx = rng.next_u32() % 3 + 2; //at least 2 digits, at max 4 (u128)
-            let dy = rng.next_u32() % 3 + 2;
+            let dx = rng.next_u32() % (max_dividend_digits + 1 - min_dividend_digits) + min_dividend_digits;
+            let dy = rng.next_u32() % (max_divisor_digits + 1 -  min_divisor_digits) +  min_divisor_digits;
             let ds = dx.min(dy);
             let dl = dx.max(dy);
             let dividendx = [
                 0,
-                if dl == 4 { rng.next_u32() } else { 0 },
-                if dl >=3 { rng.next_u32() } else {0},
-                rng.next_u32(),
-                rng.next_u32(),
+                if dl >= 4 { rng.next_u32() } else { 0 },
+                if dl >= 3 { rng.next_u32() } else { 0 },
+                if dl >= 2 { rng.next_u32() } else { 0 },
+                if dl >= 1 { rng.next_u32() } else { 0 },
             ];
             let divisorx = [
                 0,
-                if ds == 4 { rng.next_u32() } else { 0 },
-                if ds >=3 { rng.next_u32() } else {0},
-                rng.next_u32(),
-                rng.next_u32(),
+                if ds >= 4 { rng.next_u32() } else { 0 },
+                if ds >= 3 { rng.next_u32() } else { 0 },
+                if ds >= 2 { rng.next_u32() } else { 0 },
+                if ds >= 1 { rng.next_u32() } else { 0 },
             ];
             let needs_swap = ds == dl && dividendx[5-ds as usize] < divisorx[5-ds as usize];
-            let dividend = ArbitraryBytes::new(if needs_swap { divisorx } else {dividendx});
-            let divisor = ArbitraryBytes::new(if needs_swap {dividendx} else {divisorx});
+            let dividend = ArbitraryBytes::new(if needs_swap {divisorx} else {dividendx});
+            let divisor  = ArbitraryBytes::new(if needs_swap {dividendx} else {divisorx});
             assert!(dividend.ge(&divisor));
 
             let td = 
@@ -567,10 +566,36 @@ mod iterative_conversion_impl_tests{
 
     /// Just tests a bunch of procedurally generated numbers (all within u128 for easy comparison.)
     #[test]
-    fn knuth_many_numbers_test() {
-        let input = prepare_many_numbers();
+    fn rem_assign_with_quotient_knuth_many_numbers_test() {
+        let input = prepare_many_numbers(4,2, 4, 2);
         for (mut dividend, divisor, expected_quotient, expexted_remainder) in input {
             let quotient = dividend.rem_assign_with_quotient_knuth(&divisor);
+            let remainder = dividend;
+            let quotient = ((quotient.0[1] as u128)<<(96)) + ((quotient.0[2] as u128)<<64) + ((quotient.0[3] as u128)<<32) + (quotient.0[4] as u128);
+            let remainder = ((remainder.0[1] as u128)<<(96)) + ((remainder.0[2] as u128)<<64) + ((remainder.0[3] as u128)<<32) + (remainder.0[4] as u128);
+            assert_eq!(quotient, expected_quotient);
+            assert_eq!(remainder, expexted_remainder);
+        }
+    }
+    /// Just tests a bunch of procedurally generated numbers (all within u128 for easy comparison.)
+    #[test]
+    fn rem_assign_with_quotient_many_numbers_test() {
+        let input = prepare_many_numbers(4,1, 4, 1);
+        for (mut dividend, divisor, expected_quotient, expexted_remainder) in input {
+            let quotient = dividend.rem_assign_with_quotient(&divisor);
+            let remainder = dividend;
+            let quotient = ((quotient.0[1] as u128)<<(96)) + ((quotient.0[2] as u128)<<64) + ((quotient.0[3] as u128)<<32) + (quotient.0[4] as u128);
+            let remainder = ((remainder.0[1] as u128)<<(96)) + ((remainder.0[2] as u128)<<64) + ((remainder.0[3] as u128)<<32) + (remainder.0[4] as u128);
+            assert_eq!(quotient, expected_quotient);
+            assert_eq!(remainder, expexted_remainder);
+        }
+    }
+
+    #[test]
+    fn rem_assign_with_quotient_u32_many_numbers_test() {
+        let input = prepare_many_numbers(4,1, 1, 1);
+        for (mut dividend, divisor, expected_quotient, expexted_remainder) in input {
+            let quotient = dividend.rem_assign_with_quotient_u32(&divisor.0.last().unwrap());
             let remainder = dividend;
             let quotient = ((quotient.0[1] as u128)<<(96)) + ((quotient.0[2] as u128)<<64) + ((quotient.0[3] as u128)<<32) + (quotient.0[4] as u128);
             let remainder = ((remainder.0[1] as u128)<<(96)) + ((remainder.0[2] as u128)<<64) + ((remainder.0[3] as u128)<<32) + (remainder.0[4] as u128);
@@ -585,6 +610,39 @@ mod iterative_conversion_impl_tests{
         let quotient = a.rem_assign_with_quotient_u32(&0x12345);
         assert_eq!(quotient.0, [0x9A10,0xB282B7BA,0xE4948E98,0x2AE63D74,0xE6FDFF4A]);
         assert_eq!(a.0, [0,0,0,0,0x6882]);
+    }
+
+    #[test]
+    fn rem_assign_with_quotient_u32_test2(){
+        let mut a = ArbitraryBytes::new([0,0,0,0,0x1234]);
+        let quotient = a.rem_assign_with_quotient_u32(&0x12345);
+        assert_eq!(quotient.0, [0,0,0,0,0]);
+        assert_eq!(a.0, [0,0,0,0,0x1234]);
+    }
+
+    #[test]
+    fn div_assign_with_remainder_usize_test(){
+        let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
+        let remainder = a.div_assign_with_remainder_usize(&0x1234_usize);
+        assert_eq!(a.0, [0x9A135,0x79AA8650,0xD251DC7A,0x9AA8C1F2,0x8B9729EF]);
+        assert_eq!(remainder, 0x2E8);
+    }
+
+    #[test]
+    fn div_assign_with_remainder_usize_test2(){
+        let mut a = ArbitraryBytes::new([0,0,0,0,0x1234]);
+        let remainder = a.div_assign_with_remainder_usize(&0x1235_usize);
+        assert_eq!(a.0, [0,0,0,0,0]);
+        assert_eq!(remainder, 0x1234);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn div_assign_with_remainder_usize_test3(){
+        let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
+        let remainder = a.div_assign_with_remainder_usize(&0x123456789ab_usize);
+        assert_eq!(a.0, [0,0x9A107B,0xBEC8B35A,0xEC9D3B43,0x056F803A]);
+        assert_eq!(remainder, 0xD7537A4B6);
     }
 
     #[test]
@@ -711,5 +769,130 @@ mod iterative_conversion_impl_tests{
         let b = ArbitraryBytes::new([0,0xffffffff,0x1753a5c7,0x47ea7314,0xfba75574]);
         let c = &a * &b;
         assert!(c.is_none())
+    }
+
+    #[test]
+    fn mul_with_u32_test(){
+        let a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = 3u32;
+        let product = a*b;
+        assert_eq!(product.unwrap().0, [0xC7F73D08,0xFFFFFFFF,0x553AA37F,0x369D036A,0x0369A036])
+    }
+    #[test]
+    fn mul_with_u32_test2(){
+        let a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = 4u32;
+        let product = a*b;
+        assert!(product.is_none())
+    }
+    #[test]
+    fn mul_with_usize_test_working(){
+        let a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = 3usize;
+        let product = a*b;
+        assert_eq!(product.unwrap().0, [0xC7F73D08,0xFFFFFFFF,0x553AA37F,0x369D036A,0x0369A036])
+    }
+    #[test]
+    fn mul_with_usize_test_overflow(){
+        let a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = 4usize;
+        let product = a*b;
+        assert!(product.is_none())
+    }
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn mul_with_usize_test_64bit_works(){
+        let a = ArbitraryBytes::new([0,0,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = 0x123456789ausize;
+        let product = a*b;
+        assert_eq!(product.unwrap().0, [0xE,0x28130BBC,0x7442D257,0x1FEDDF10,0xC8ED3AD4])
+    }
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn mul_with_usize_test_64bit_overflow(){
+        let a = ArbitraryBytes::new([0,0x1,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = usize::MAX;
+        let product = a*b;
+        assert!(product.is_none())
+    }
+    #[test]
+    fn try_into_u32_test(){
+        let a = ArbitraryBytes::new([0,0,0,0,0xabcde012]);
+        let b : u32 = (&a).try_into().unwrap();
+        assert_eq!(b, 0xabcde012);
+    }
+    #[test]
+    fn try_into_u32_test_overflows(){
+        let a = ArbitraryBytes::new([0,0,0,0x1,0xabcde012]);
+        let b : Result<u32,_> = (&a).try_into();
+        assert!(b.is_err())
+    }
+    #[test]
+    fn try_into_usize_test(){
+        let a = ArbitraryBytes::new([0,0,0,0,0xe012]);
+        let b : usize = (&a).try_into().unwrap();
+        assert_eq!(b, 0xe012);
+    }
+    #[test]
+    fn try_into_usize_test_overflows(){
+        let a = ArbitraryBytes::new([0,0,0x1,0,0xabcde012]);
+        let b : Result<usize,_> = (&a).try_into();
+        assert!(b.is_err())
+    }
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn try_into_usize_test_on_64_bits(){
+        let a = ArbitraryBytes::new([0,0,0,0x54a,0xabcde012]);
+        let b : usize= (&a).try_into().unwrap();
+        assert_eq!(b, 0x54aabcde012);
+    }
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn try_into_usize_test_on_64_bits(){
+        let a = ArbitraryBytes::new([0,0,0,0x54a,0xabcde012]);
+        let b : Result<usize,_> = (&a).try_into();
+        assert!(b.is_err())
+    }
+    #[test]
+    fn pad_with_a_zero_5(){
+        let a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = a.pad_with_a_zero();
+        assert_eq!(*b.0.first().unwrap(),0);
+        assert_eq!(b.0[1..], a.0);
+    }
+    #[test]
+    fn pad_with_a_zero_8(){
+        let a = ArbitraryBytes::new([0x4631abcd,0x35a40be4,0x074c4d0a,0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = a.pad_with_a_zero();
+        assert_eq!(*b.0.first().unwrap(),0);
+        assert_eq!(b.0[1..], a.0);
+    }
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn from_usize_5_large(){
+        let a : ArbitraryBytes<5> = (&0x7246abcd705aef_usize).into();
+        assert_eq!(a.0[4], 0xcd705aef);
+        assert_eq!(a.0[3], 0x007246ab);
+        assert!(a.0[..3].iter().all(|x| *x==0));
+    }
+    #[test]
+    fn from_usize_5(){
+        let a : ArbitraryBytes<5> = (&0xcd705aef_usize).into();
+        assert_eq!(a.0[4], 0xcd705aef);
+        assert!(a.0[..4].iter().all(|x| *x==0));
+    }
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn from_usize_8_large(){
+        let a : ArbitraryBytes<8> = (&0x7246abcd705aef_usize).into();
+        assert_eq!(a.0[7], 0xcd705aef);
+        assert_eq!(a.0[6], 0x007246ab);
+        assert!(a.0[..6].iter().all(|x| *x==0));
+    }
+    #[test]
+    fn from_usize_8(){
+        let a : ArbitraryBytes<8> = (&0xcd705aef_usize).into();
+        assert_eq!(a.0[7], 0xcd705aef);
+        assert!(a.0[..7].iter().all(|x| *x==0));
     }
 }
