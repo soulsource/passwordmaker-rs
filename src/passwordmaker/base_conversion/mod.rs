@@ -3,6 +3,8 @@ use iterative_conversion_impl::PadWithAZero;
 pub(super) use iterative_conversion::IterativeBaseConversion;
 pub(super) use iterative_conversion_impl::{SixteenBytes, ArbitraryBytes};
 
+use self::iterative_conversion::ConstantMaxPotencyCache;
+
 mod iterative_conversion;
 mod iterative_conversion_impl;
 
@@ -14,7 +16,7 @@ pub(super) trait BaseConversion {
 
 impl<T, const N : usize, const M : usize> BaseConversion for T 
     where T : ToArbitraryBytes<Output = ArbitraryBytes<N>>,
-        for<'a> T::Output: From<&'a usize> + From<&'a u32> + PadWithAZero<Output = ArbitraryBytes<M>>,
+        for<'a> T::Output: From<&'a usize> + From<&'a u32> + PadWithAZero<Output = ArbitraryBytes<M>> + ConstantMaxPotencyCache<usize>,
 {
     type Output = IterativeBaseConversion<ArbitraryBytes<N>, usize>;
     fn convert_to_base(self, base : usize) -> Self::Output {

@@ -5,13 +5,15 @@
 //let's start with the simple case: u128
 //we do need a NewType here, because actual u128 already has a Mul<&usize> implementation that does not match the version we want.
 
+mod precomputed_constants;
+
 use std::ops::{DivAssign, Mul};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::error::Error;
 use std::iter::once;
 
-use super::iterative_conversion::RemAssignWithQuotient;
+use super::iterative_conversion::{RemAssignWithQuotient, ConstantMaxPotencyCache};
 
 //Type to be used as V, with usize as B.
 pub(crate) struct SixteenBytes(u128);
@@ -66,65 +68,33 @@ impl Mul<&SixteenBytes> for &SixteenBytes{
     }
 }
 
+impl ConstantMaxPotencyCache<usize> for SixteenBytes{}
+
 //--------------------------------------------------------------------------------------------------------------------------------------
 //and now the hard part: The same for [u32;N].
 //We cannot directly implement all the Foreign traits on arrays directly. So, newtypes again.
 
-#[derive(PartialEq, PartialOrd, Ord, Eq, Clone)]
+#[derive(PartialEq, PartialOrd, Ord, Eq, Clone, Debug)]
 pub(crate) struct ArbitraryBytes<const N : usize>([u32;N]);
 
-//Const generics are still a bit limited -> let's just implement From for the exact types we need.
-impl From<&usize> for ArbitraryBytes<5>{
+const fn from_usize<const N : usize>(x : &usize) -> ArbitraryBytes<N> {
+    let mut result = [0;N]; //from Godbolt it looks like the compiler is smart enough to skip the unnecessary inits.
+    #[cfg(target_pointer_width = "64")]
+    if N > 1 { result[N-2] = (*x >> 32) as u32;}
+    if N > 0 { result[N-1] = *x as u32;} //Compiler should hopefully be smart enough to yeet the condition.
+    ArbitraryBytes(result)
+}
+
+impl<const N : usize> From<&usize> for ArbitraryBytes<N>{
     fn from(x: &usize) -> Self {
-        Self([
-            0,//(*x >> 32*4) as u32, //zero on all target platforms
-            0,//(*x >> 32*3) as u32, //zero on all target platforms
-            0,//(*x >> 32*2) as u32, //zero on all target platforms
-            x.checked_shr(32).map(|x| x as u32).unwrap_or_default(),
-            *x as u32,
-        ])
+        from_usize(x)
     }
 }
-
-impl From<&usize> for ArbitraryBytes<8>{
-    fn from(x: &usize) -> Self {
-        Self([
-            0,//(*x >> 32*7) as u32, //zero on all target platforms
-            0,//(*x >> 32*6) as u32, //zero on all target platforms
-            0,//(*x >> 32*5) as u32, //zero on all target platforms
-            0,//(*x >> 32*4) as u32, //zero on all target platforms
-            0,//(*x >> 32*3) as u32, //zero on all target platforms
-            0,//(*x >> 32*2) as u32, //zero on all target platforms
-            x.checked_shr(32).map(|x| x as u32).unwrap_or_default(),
-            *x as u32,
-        ])
-    }
-}
-
-impl From<&u32> for ArbitraryBytes<5>{
+impl<const N : usize> From<&u32> for ArbitraryBytes<N>{
     fn from(x: &u32) -> Self {
-        Self([
-            0,
-            0,
-            0,
-            0,
-            *x,
-        ])
-    }
-}
-
-impl From<&u32> for ArbitraryBytes<8>{
-    fn from(x: &u32) -> Self {
-        Self([
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            *x,
-        ])
+        let mut result = [0;N];
+        if let Some(l) = result.last_mut() { *l = *x };
+        ArbitraryBytes(result)
     }
 }
 
@@ -237,30 +207,37 @@ impl<const N : usize> TryFrom<&ArbitraryBytes<N>> for u32{
 }
 
 macro_rules! make_mul {
-    ($t:ty, $long_t:ty) => {
+    ($cfn:ident, $t:ty, $long_t:ty) => {
         impl<const N : usize> Mul<$t> for ArbitraryBytes<N>{
             type Output = Option<ArbitraryBytes<N>>;
-            fn mul(mut self, rhs: $t) -> Self::Output {
-                let carry = self.0.iter_mut().rev().fold(<$long_t>::default(), |carry, digit|{
-                    debug_assert_eq!(carry, carry & (<$t>::MAX as $long_t)); //carry always has to fit in usize, otherwise something is terribly wrong.
-                    let res = (*digit as $long_t) * (rhs as $long_t) + carry;
-                    *digit = res as u32;
-                    res >> 32
-                });
-                if carry != 0 { //if there's still carry after we hit the last digit, well, didn't fit obviously.
-                    None
-                } else {
-                    Some(self)
-                }
+            fn mul(self, rhs: $t) -> Self::Output {
+                $cfn(self, rhs)
+            }
+        }
+        const fn $cfn<const N : usize>(mut lhs : ArbitraryBytes<N>, rhs: $t) -> Option<ArbitraryBytes<N>> {
+            //sorry for this fugly non-idiomatic syntax, but Rust const functions seem to be severely limited right now :-(
+            let mut carry = 0 as $long_t;
+            let mut idx = N;
+            let rhs = rhs as $long_t;
+            while idx != 0 {
+                idx -= 1;
+                let res = (lhs.0[idx] as $long_t) * rhs + carry;
+                lhs.0[idx] = res as u32;
+                carry = res >> 32;
+            }
+            if carry != 0 { //if there's still carry after we hit the last digit, well, didn't fit obviously.
+                None
+            } else {
+                Some(lhs)
             }
         }
     };
 }
-make_mul!(u32,u64);
+make_mul!(const_mul_u32, u32,u64);
 #[cfg(target_pointer_width = "64")]
-make_mul!(usize, u128);
+make_mul!(const_mul_usize, usize, u128);
 #[cfg(not(target_pointer_width = "64"))]
-make_mul!(usize, u64);
+make_mul!(const_mul_usize, usize, u64);
 
 impl<const N : usize> Mul<&usize> for &ArbitraryBytes<N>{
     type Output = Option<ArbitraryBytes<N>>;
