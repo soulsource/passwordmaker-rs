@@ -4,8 +4,10 @@
 
 //let's start with the simple case: u128
 //we do need a NewType here, because actual u128 already has a Mul<&usize> implementation that does not match the version we want.
-
+#[cfg(feature="precomputed_max_powers")]
 mod precomputed_constants;
+#[cfg(all(not(feature="precomputed_max_powers"),feature="precomputed_common_max_powers"))]
+mod precomputed_common_constants;
 
 use std::ops::{DivAssign, Mul};
 use std::convert::{TryFrom, TryInto};
@@ -13,7 +15,7 @@ use std::fmt::Display;
 use std::error::Error;
 use std::iter::once;
 
-use super::iterative_conversion::{RemAssignWithQuotient, ConstantMaxPowerCache};
+use super::iterative_conversion::{RemAssignWithQuotient, PrecomputedMaxPowers};
 
 //Type to be used as V, with usize as B.
 pub(crate) struct SixteenBytes(u128);
@@ -68,7 +70,7 @@ impl Mul<&SixteenBytes> for &SixteenBytes{
     }
 }
 
-impl ConstantMaxPowerCache<usize> for SixteenBytes{}
+impl PrecomputedMaxPowers<usize> for SixteenBytes{}
 
 //--------------------------------------------------------------------------------------------------------------------------------------
 //and now the hard part: The same for [u32;N].
@@ -76,6 +78,11 @@ impl ConstantMaxPowerCache<usize> for SixteenBytes{}
 
 #[derive(PartialEq, PartialOrd, Ord, Eq, Clone, Debug)]
 pub(crate) struct ArbitraryBytes<const N : usize>([u32;N]);
+
+#[cfg(not(any(feature="precomputed_max_powers", feature="precomputed_common_max_powers")))]
+impl PrecomputedMaxPowers<usize> for ArbitraryBytes<5>{}
+#[cfg(not(any(feature="precomputed_max_powers", feature="precomputed_common_max_powers")))]
+impl PrecomputedMaxPowers<usize> for ArbitraryBytes<8>{}
 
 const fn from_usize<const N : usize>(x : &usize) -> ArbitraryBytes<N> {
     let mut result = [0;N]; //from Godbolt it looks like the compiler is smart enough to skip the unnecessary inits.

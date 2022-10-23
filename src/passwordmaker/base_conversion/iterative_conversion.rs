@@ -21,7 +21,7 @@ pub(crate) struct IterativeBaseConversion<V,B>{
 
 impl<V,B> IterativeBaseConversion<V,B> 
     where V: for<'a> From<&'a B> +                          //could be replaced by num::traits::identities::One.
-             ConstantMaxPowerCache<B>,
+             PrecomputedMaxPowers<B>,
           for<'a> &'a V : Mul<&'a B, Output = Option<V>> +  //used to get the first current_base_power.
                           Mul<&'a V, Output = Option<V>>
 {
@@ -96,7 +96,7 @@ pub(crate) trait RemAssignWithQuotient{
     fn rem_assign_with_quotient(&mut self, divisor : &Self) -> Self;
 }
 
-pub(crate) trait ConstantMaxPowerCache<B> where Self : Sized{
+pub(crate) trait PrecomputedMaxPowers<B> where Self : Sized{
     fn lookup(_base : &B) -> Option<(Self, usize)> { None }
 }
 
@@ -150,7 +150,7 @@ mod iterative_conversion_tests{
         }
     }
 
-    impl ConstantMaxPowerCache<u64> for MyU128{}
+    impl PrecomputedMaxPowers<u64> for MyU128{}
 
     #[test]
     fn test_simple_u128_to_hex_conversion(){

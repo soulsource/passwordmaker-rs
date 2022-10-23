@@ -1,13 +1,14 @@
 use super::const_mul_usize;
 use super::ArbitraryBytes;
-use super::super::iterative_conversion::ConstantMaxPowerCache;
+use super::super::iterative_conversion::PrecomputedMaxPowers;
 
-impl ConstantMaxPowerCache<usize> for ArbitraryBytes<5>{
+impl PrecomputedMaxPowers<usize> for ArbitraryBytes<5>{
     fn lookup(base : &usize) -> Option<(Self, usize)> { 
         get_from_cache(base, &CONSTANT_MAX_POWER_CACHE_5)
     }
 }
-impl ConstantMaxPowerCache<usize> for ArbitraryBytes<8>{
+
+impl PrecomputedMaxPowers<usize> for ArbitraryBytes<8>{
     fn lookup(base : &usize) -> Option<(Self, usize)> { 
         get_from_cache(base, &CONSTANT_MAX_POWER_CACHE_8)
      }
@@ -38,7 +39,7 @@ const fn const_find_highest_fitting_power<const N : usize>(base : usize) -> ([u3
 //If anyone could tell me how to implement "~const Clone" in stable Rust, I'd be very happy.
 const fn const_clone<const N : usize>(x : &ArbitraryBytes<N>) -> ArbitraryBytes<N>{ArbitraryBytes(x.0)}
 
-pub(crate) const fn gen_const_max_power_cache<const N : usize, const CNT : usize>() -> [([u32;N],usize);CNT]{
+const fn gen_const_max_power_cache<const N : usize, const CNT : usize>() -> [([u32;N],usize);CNT]{
     let mut result = [([0u32;N],0usize);CNT];
     let mut i = 0usize;
     loop {

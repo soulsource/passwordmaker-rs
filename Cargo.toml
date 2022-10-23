@@ -11,6 +11,11 @@ license = "LGPL-3.0-or-later"
 keywords = ["password", "crypto", "password-generator", "security"]
 categories = ["cryptography"]
 
+[features]
+default = ["precomputed_common_max_powers"]
+precomputed_max_powers = ["precomputed_common_max_powers"]
+precomputed_common_max_powers = []
+
 [dependencies]
 unicode-segmentation = "1.10.0"
 
