@@ -14,34 +14,34 @@ use std::iter::successors;
 
 pub(crate) struct IterativeBaseConversion<V,B>{
     current_value : V,
-    current_base_potency : V,
+    current_base_power : V,
     remaining_digits : usize,
     base : B,
 }
 
 impl<V,B> IterativeBaseConversion<V,B> 
     where V: for<'a> From<&'a B> +                          //could be replaced by num::traits::identities::One.
-             ConstantMaxPotencyCache<B>,
-          for<'a> &'a V : Mul<&'a B, Output = Option<V>> +  //used to get the first current_base_potency.
+             ConstantMaxPowerCache<B>,
+          for<'a> &'a V : Mul<&'a B, Output = Option<V>> +  //used to get the first current_base_power.
                           Mul<&'a V, Output = Option<V>>
 {
     pub(super) fn new(value : V, base : B) -> Self{
-        let PotencyAndExponent{power : current_base_potency, exponent : highest_fitting_exponent} = Self::find_highest_fitting_power(&base);
+        let PowerAndExponent{power : current_base_power, exponent : highest_fitting_exponent} = Self::find_highest_fitting_power(&base);
         Self{
             current_value : value,
-            current_base_potency,
+            current_base_power,
             remaining_digits: highest_fitting_exponent + 1, //to the power of 0 is a digit too. Soo, if base^n is the largest fitting exponent, n+1 digits.
             base,
         }
     }
 
-    fn find_highest_fitting_power(base : &B) -> PotencyAndExponent<V> {
-        V::lookup(base).map(|(potency,count)| PotencyAndExponent{ power: potency, exponent: count })
+    fn find_highest_fitting_power(base : &B) -> PowerAndExponent<V> {
+        V::lookup(base).map(|(power,count)| PowerAndExponent{ power, exponent: count })
             .unwrap_or_else(|| Self::find_highest_fitting_power_non_cached(base))
     }
 
     //public for unit tests in cache, which is not a sub-module of this.
-    pub(super) fn find_highest_fitting_power_non_cached(base : &B) -> PotencyAndExponent<V> {
+    pub(super) fn find_highest_fitting_power_non_cached(base : &B) -> PowerAndExponent<V> {
         let base_v = base.into();
     
         let exp_result = successors(Some((base_v, 1)), |(p, e)| {
@@ -49,15 +49,15 @@ impl<V,B> IterativeBaseConversion<V,B>
         }).last();
 
 
-        let result = successors(exp_result, |(potency, count)| (potency * base).map(|v| (v, count + 1)))
+        let result = successors(exp_result, |(power, count)| (power * base).map(|v| (v, count + 1)))
             .last()
             .expect("Cannot fail, first entry is Some (required V : From<B>) and there's no filtering.");
-        PotencyAndExponent{ power : result.0, exponent : result.1 }
+        PowerAndExponent{ power : result.0, exponent : result.1 }
     }
 }
 
 impl<V,B> std::iter::Iterator for IterativeBaseConversion<V,B>
-    where V : for<'a> DivAssign<&'a B> + //used between steps to go to next-lower current_base_potency
+    where V : for<'a> DivAssign<&'a B> + //used between steps to go to next-lower current_base_power
               RemAssignWithQuotient+     //used to get the result of each step.
               TryInto<B>                 //used to convert the result of each step. We _know_ this cannot fail, but requiring Into would be wrong.
 {
@@ -67,9 +67,9 @@ impl<V,B> std::iter::Iterator for IterativeBaseConversion<V,B>
         if self.remaining_digits == 0 {
             None
         } else {
-            let result = self.current_value.rem_assign_with_quotient(&self.current_base_potency);
+            let result = self.current_value.rem_assign_with_quotient(&self.current_base_power);
             
-            self.current_base_potency /=  &self.base;
+            self.current_base_power /=  &self.base;
             self.remaining_digits = self.remaining_digits - 1;
             
             //this cannot ever yield None.
@@ -86,7 +86,7 @@ impl<V,B> std::iter::ExactSizeIterator for IterativeBaseConversion<V,B>
     where IterativeBaseConversion<V,B> : Iterator
 {}
 
-pub(super) struct PotencyAndExponent<V>{
+pub(super) struct PowerAndExponent<V>{
     pub(super) power : V,
     pub(super) exponent : usize,
 }
@@ -96,7 +96,7 @@ pub(crate) trait RemAssignWithQuotient{
     fn rem_assign_with_quotient(&mut self, divisor : &Self) -> Self;
 }
 
-pub(crate) trait ConstantMaxPotencyCache<B> where Self : Sized{
+pub(crate) trait ConstantMaxPowerCache<B> where Self : Sized{
     fn lookup(_base : &B) -> Option<(Self, usize)> { None }
 }
 
@@ -150,7 +150,7 @@ mod iterative_conversion_tests{
         }
     }
 
-    impl ConstantMaxPotencyCache<u64> for MyU128{}
+    impl ConstantMaxPowerCache<u64> for MyU128{}
 
     #[test]
     fn test_simple_u128_to_hex_conversion(){

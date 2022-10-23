@@ -13,7 +13,7 @@ use std::fmt::Display;
 use std::error::Error;
 use std::iter::once;
 
-use super::iterative_conversion::{RemAssignWithQuotient, ConstantMaxPotencyCache};
+use super::iterative_conversion::{RemAssignWithQuotient, ConstantMaxPowerCache};
 
 //Type to be used as V, with usize as B.
 pub(crate) struct SixteenBytes(u128);
@@ -68,7 +68,7 @@ impl Mul<&SixteenBytes> for &SixteenBytes{
     }
 }
 
-impl ConstantMaxPotencyCache<usize> for SixteenBytes{}
+impl ConstantMaxPowerCache<usize> for SixteenBytes{}
 
 //--------------------------------------------------------------------------------------------------------------------------------------
 //and now the hard part: The same for [u32;N].
