@@ -46,7 +46,7 @@ fn criterion_bench_20bytes_full_divide(c: &mut Criterion) {
 
 fn criterion_bench_20bytes_worst_case(c: &mut Criterion) {
     let pwm = Pwm::new(
-        HashAlgorithm::Md5, 
+        HashAlgorithm::Ripemd160, 
         passwordmaker_rs::UseLeetWhenGenerating::NotAtAll,
         "XY",
         "",
