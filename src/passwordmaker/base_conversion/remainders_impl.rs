@@ -13,7 +13,7 @@ impl<const N : usize> Division<usize> for [u32;N] {
 
         //uses mutation, because why not? self is owned after all :D
         let divisor : UsizeAndFour = *divisor as UsizeAndFour;
-        let remainder = self.iter_mut().fold(0 as UsizeAndFour,|carry, current| {
+        let remainder = self.iter_mut().skip_while(|x| **x == 0).fold(0 as UsizeAndFour,|carry, current| {
             debug_assert_eq!(carry, carry & (usize::MAX as UsizeAndFour)); //carry has to be lower than divisor, and divisor is usize.
             let carry_shifted = carry << 32;
             let dividend = (carry_shifted) + (*current as UsizeAndFour);
