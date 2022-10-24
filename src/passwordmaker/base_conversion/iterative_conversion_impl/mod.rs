@@ -300,7 +300,7 @@ macro_rules! make_div_assign_with_remainder {
             debug_assert!((<$t_long>::MAX >> 32) as u128 >= <$t_divisor>::MAX as u128);
 
             let divisor = *rhs as $t_long;
-            let remainder = self.0.iter_mut().fold(0 as $t_long,|carry, current| {
+            let remainder = self.0.iter_mut().skip_while(|x| **x == 0).fold(0 as $t_long,|carry, current| {
                 debug_assert_eq!(carry, carry & (<$t_divisor>::MAX as $t_long)); //carry has to be lower than divisor, and divisor is $t_divisor.
                 let carry_shifted = carry << 32;
                 let dividend = (carry_shifted) | (*current as $t_long);
