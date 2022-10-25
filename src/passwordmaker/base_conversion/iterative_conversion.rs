@@ -17,6 +17,7 @@ pub(crate) struct IterativeBaseConversion<V,B>{
     current_base_power : V,
     remaining_digits : usize,
     base : B,
+    switch_to_multiplication : bool, //count the number of divisions. After 1, current_value is smaller than max_base_power. After 2, it's safe to mutliply current_value by base.
 }
 
 impl<V,B> IterativeBaseConversion<V,B> 
@@ -32,6 +33,7 @@ impl<V,B> IterativeBaseConversion<V,B>
             current_base_power,
             remaining_digits: highest_fitting_exponent + 1, //to the power of 0 is a digit too. Soo, if base^n is the largest fitting exponent, n+1 digits.
             base,
+            switch_to_multiplication: false
         }
     }
 
@@ -59,7 +61,8 @@ impl<V,B> IterativeBaseConversion<V,B>
 impl<V,B> std::iter::Iterator for IterativeBaseConversion<V,B>
     where V : for<'a> DivAssign<&'a B> + //used between steps to go to next-lower current_base_power
               RemAssignWithQuotient+     //used to get the result of each step.
-              TryInto<B>                 //used to convert the result of each step. We _know_ this cannot fail, but requiring Into would be wrong.
+              TryInto<B>,                //used to convert the result of each step. We _know_ this cannot fail, but requiring Into would be wrong.
+          for<'a> &'a V : Mul<&'a B, Output = Option<V>> 
 {
     type Item = B;
 
@@ -69,7 +72,12 @@ impl<V,B> std::iter::Iterator for IterativeBaseConversion<V,B>
         } else {
             let result = self.current_value.rem_assign_with_quotient(&self.current_base_power);
             
-            self.current_base_power /=  &self.base;
+            if self.switch_to_multiplication {
+                self.current_value = (&self.current_value * &self.base).expect("Cannot overflow.");
+            } else {
+                self.current_base_power /=  &self.base;
+                self.switch_to_multiplication = true;
+            }
             self.remaining_digits = self.remaining_digits - 1;
             
             //this cannot ever yield None.
@@ -170,5 +178,12 @@ mod iterative_conversion_tests{
         assert_eq!(i.len(), 25);
         // 3YPRS4FaC1KU
         assert_eq!(i.skip_while(|x| *x == 0_u64).collect::<Vec<_>>(), vec![3, 34, 25, 27, 28, 4, 15, 36, 12, 1, 20, 30]);
+    }
+    #[test]
+    fn test_overflow_in_switch_to_multiplication(){
+        //This should simply not overflow ever.
+        let i = IterativeBaseConversion::new(MyU128(u128::MAX), 40);
+        let result = i.skip_while(|x| *x == 0_u64).collect::<Vec<_>>();
+        assert_eq!(result, vec![1, 8, 14, 11, 10, 3, 37, 5, 26, 17, 14, 0, 23, 37, 35, 24, 3, 11, 27, 20, 34, 18, 12, 6, 15]);
     }
 }
