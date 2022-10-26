@@ -410,7 +410,7 @@ impl<const N : usize> ArbitraryBytes<N>{
                 //Step D6: We have to correct our guesstimate. It was too large by one. We also have to fix the overflow that has occured.
                 guesstimate -= 1;
                 //The addition must overflow again. The two overflows cancel out, and since we are using wrapping arithmetics, the result becomes correct again.
-                let did_overflow = slice_overflowing_add_assign(&mut dividend.0[d_range.clone()], &divisor.0[s_range.clone()]);
+                let did_overflow = slice_overflowing_add_assign(&mut dividend.0[d_range], &divisor.0[s_range]);
                 debug_assert!(did_overflow, "Knuth, TAOCP Vol 2, Chap 4.3.1 exercise 21 says: if this fails, the while above is wrong. Debug.")
             }
             quotient.set_digit_from_right(guesstimate, j);
