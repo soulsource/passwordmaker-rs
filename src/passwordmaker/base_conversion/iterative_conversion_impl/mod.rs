@@ -371,7 +371,7 @@ impl<const N : usize> ArbitraryBytes<N>{
         let m_extra_digits_dividend = m_plus_n_digits_dividend - n_digits_divisor;
 
         //step D1: Normalize. This brings the maximum error for each digit down to no more than 2.
-        let normalize_shift = divisor.get_digit_from_right(n_digits_divisor - 1).leading_zeros() as usize;
+        let normalize_shift = divisor.get_digit_from_right(n_digits_divisor - 1).leading_zeros();
         //again, missing const generics ruin all the fun.
         let mut dividend = self.shift_left(normalize_shift);
         let divisor = divisor.shift_left(normalize_shift);
@@ -434,7 +434,7 @@ impl<const N : usize> ArbitraryBytes<N>{
         self.0[N-i-1] = val;
     }
 
-    fn shift_left<const M : usize>(&self, s : usize) -> <Self as PadWithAZero>::Output
+    fn shift_left<const M : usize>(&self, s : u32) -> <Self as PadWithAZero>::Output
         where Self : PadWithAZero<Output = ArbitraryBytes<M>>
     {
         debug_assert!(s < 32);
@@ -445,7 +445,7 @@ impl<const N : usize> ArbitraryBytes<N>{
         res
     }
 
-    fn shift_right(mut self, s : usize) -> Self {
+    fn shift_right(mut self, s : u32) -> Self {
         debug_assert!(s < 32);
         if s != 0 {
             let _ = self.0.iter_mut().fold(0u32, |carry, val| {
