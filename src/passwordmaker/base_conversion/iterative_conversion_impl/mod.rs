@@ -9,7 +9,7 @@ mod precomputed_constants;
 #[cfg(all(not(feature="precomputed_max_powers"),feature="precomputed_common_max_powers"))]
 mod precomputed_common_constants;
 
-use std::ops::{DivAssign, Mul};
+use std::ops::{DivAssign, Mul, MulAssign};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::error::Error;
@@ -67,6 +67,12 @@ impl Mul<&SixteenBytes> for &SixteenBytes{
 
     fn mul(self, rhs: &SixteenBytes) -> Self::Output {
         self.0.checked_mul(rhs.0).map(Into::into)
+    }
+}
+
+impl MulAssign<&usize> for SixteenBytes {
+    fn mul_assign(&mut self, rhs: &usize) {
+        self.0 *= *rhs as u128;
     }
 }
 
@@ -253,6 +259,23 @@ impl<const N : usize> Mul<&usize> for &ArbitraryBytes<N>{
     }
 }
 
+//Done separately, because "mut references not allowed in const contexts"
+impl<const N : usize> MulAssign<&usize> for ArbitraryBytes<N>{
+    fn mul_assign(&mut self, rhs: &usize) {
+        #[cfg(target_pointer_width = "64")]
+        type Long = u128;
+        #[cfg(not(target_pointer_width = "64"))]
+        type Long = u64;
+        let rhs = *rhs as Long;
+        let carry = self.0.iter_mut().rev().fold(0 as Long, |carry, current| {
+            let res = (*current as Long) * rhs + carry;
+            *current = res as u32;
+            res >> 32
+        });
+        debug_assert_eq!(carry, 0);
+    }
+}
+
 impl<const N : usize> Mul<&ArbitraryBytes<N>> for &ArbitraryBytes<N> where ArbitraryBytes<N> : for<'a> From<&'a usize> {
     type Output = Option<ArbitraryBytes<N>>;
     ///School method. I haven't tried Karatsuba, but rule of thumb is that it only gets faster at about 32 digits. We have 8 digits max.
@@ -300,7 +323,7 @@ macro_rules! make_div_assign_with_remainder {
             debug_assert!((<$t_long>::MAX >> 32) as u128 >= <$t_divisor>::MAX as u128);
 
             let divisor = *rhs as $t_long;
-            let remainder = self.0.iter_mut().skip_while(|x| **x == 0).fold(0 as $t_long,|carry, current| {
+            let remainder = self.0.iter_mut().fold(0 as $t_long,|carry, current| {
                 debug_assert_eq!(carry, carry & (<$t_divisor>::MAX as $t_long)); //carry has to be lower than divisor, and divisor is $t_divisor.
                 let carry_shifted = carry << 32;
                 let dividend = (carry_shifted) | (*current as $t_long);
@@ -798,6 +821,13 @@ mod arbitrary_bytes_tests{
         let b = usize::MAX;
         let product = a*b;
         assert!(product.is_none())
+    }
+    #[test]
+    fn mul_assign_usize(){
+        let mut a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = 3usize;
+        a *= &b;
+        assert_eq!(a.0, [0xC7F73D08,0xFFFFFFFF,0x553AA37F,0x369D036A,0x0369A036])
     }
     #[test]
     fn try_into_u32_test(){

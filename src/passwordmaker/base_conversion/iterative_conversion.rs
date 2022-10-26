@@ -9,7 +9,7 @@
 //! If you have any great idea how to improve it: Make a merge request!
 
 use std::convert::TryInto;
-use std::ops::{Mul, DivAssign};
+use std::ops::{Mul, DivAssign, MulAssign};
 use std::iter::successors;
 
 pub(crate) struct IterativeBaseConversion<V,B>{
@@ -59,10 +59,10 @@ impl<V,B> IterativeBaseConversion<V,B>
 }
 
 impl<V,B> std::iter::Iterator for IterativeBaseConversion<V,B>
-    where V : for<'a> DivAssign<&'a B> + //used between steps to go to next-lower current_base_power
+    where V : for<'a> DivAssign<&'a B> + //used in the first iteration to ensure that MulAssign cannot overflow.
               RemAssignWithQuotient+     //used to get the result of each step.
-              TryInto<B>,                //used to convert the result of each step. We _know_ this cannot fail, but requiring Into would be wrong.
-          for<'a> &'a V : Mul<&'a B, Output = Option<V>> 
+              TryInto<B>+                //used to convert the result of each step. We _know_ this cannot fail, but requiring Into would be wrong.
+              for<'a> MulAssign<&'a B>   //used instead of DivAssign after one iteration. it's faster to mul the dividend than div the divisor.
 {
     type Item = B;
 
@@ -73,7 +73,9 @@ impl<V,B> std::iter::Iterator for IterativeBaseConversion<V,B>
             let result = self.current_value.rem_assign_with_quotient(&self.current_base_power);
             
             if self.switch_to_multiplication {
-                self.current_value = (&self.current_value * &self.base).expect("Cannot overflow.");
+                //mul_assign is in principle dangerous.
+                //Since we do two rem_assign_with_quotient calls first, we can be sure that the result is always smaller than base^max_power though.
+                self.current_value *= &self.base
             } else {
                 self.current_base_power /=  &self.base;
                 self.switch_to_multiplication = true;
@@ -128,7 +130,13 @@ mod iterative_conversion_tests{
         type Output = Option<MyU128>;
         fn mul(self, rhs: &MyU128) -> Self::Output {
             self.0.checked_mul(rhs.0).map(|s| MyU128(s))
-     }
+        }
+    }
+
+    impl MulAssign<&u64> for MyU128 {
+        fn mul_assign(&mut self, rhs: &u64) {
+            self.0.mul_assign(*rhs as u128);
+        }
     }
 
     impl RemAssignWithQuotient for MyU128{
