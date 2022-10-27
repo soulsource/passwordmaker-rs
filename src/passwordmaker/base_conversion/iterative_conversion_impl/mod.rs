@@ -13,7 +13,6 @@ use std::ops::{DivAssign, Mul, MulAssign};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::error::Error;
-use std::iter::once;
 
 use super::iterative_conversion::{RemAssignWithQuotient, PrecomputedMaxPowers};
 
@@ -112,9 +111,14 @@ impl<const N : usize> From<&u32> for ArbitraryBytes<N>{
 }
 
 //workaround for lack of proper const-generic support.
-pub(crate) trait PadWithAZero{
+trait PadWithAZero{
     type Output;
     fn pad_with_a_zero(&self) -> Self::Output;
+}
+
+pub(crate) trait PaddedShiftLeft{
+    type Output;
+    fn padded_shift_left(&self, shift : u32) -> Self::Output;
 }
 
 impl PadWithAZero for ArbitraryBytes<5>{
@@ -145,6 +149,49 @@ impl PadWithAZero for ArbitraryBytes<8>{
             self.0[6],
             self.0[7],
         ])
+    }
+}
+
+impl PaddedShiftLeft for ArbitraryBytes<5>{
+    type Output = ArbitraryBytes::<6>;
+
+    fn padded_shift_left(&self, shift : u32) -> Self::Output {
+        debug_assert!(shift < 32);
+        if shift == 0 {
+            self.pad_with_a_zero()
+        } else {
+            ArbitraryBytes([
+                                        self.0[0] >> (32-shift),
+                (self.0[0] << shift) | (self.0[1] >> (32-shift)),
+                (self.0[1] << shift) | (self.0[2] >> (32-shift)),
+                (self.0[2] << shift) | (self.0[3] >> (32-shift)),
+                (self.0[3] << shift) | (self.0[4] >> (32-shift)),
+                 self.0[4] << shift
+            ])
+        }
+    }
+}
+
+impl PaddedShiftLeft for ArbitraryBytes<8>{
+    type Output = ArbitraryBytes::<9>;
+
+    fn padded_shift_left(&self, shift : u32) -> Self::Output {
+        debug_assert!(shift < 32);
+        if shift == 0 {
+            self.pad_with_a_zero()
+        } else {
+            ArbitraryBytes([
+                                        self.0[0] >> (32-shift),
+                (self.0[0] << shift) | (self.0[1] >> (32-shift)),
+                (self.0[1] << shift) | (self.0[2] >> (32-shift)),
+                (self.0[2] << shift) | (self.0[3] >> (32-shift)),
+                (self.0[3] << shift) | (self.0[4] >> (32-shift)),
+                (self.0[4] << shift) | (self.0[5] >> (32-shift)),
+                (self.0[5] << shift) | (self.0[6] >> (32-shift)),
+                (self.0[6] << shift) | (self.0[7] >> (32-shift)),
+                 self.0[7] << shift
+            ])
+        }
     }
 }
 
@@ -295,7 +342,7 @@ impl<const N : usize> Mul<&ArbitraryBytes<N>> for &ArbitraryBytes<N> where Arbit
 }
 
 impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<N> 
-    where Self : for<'a> From<&'a usize> + for<'a> From<&'a u32> + PadWithAZero<Output = ArbitraryBytes<M>>
+    where Self : for<'a> From<&'a usize> + for<'a> From<&'a u32> + PaddedShiftLeft<Output = ArbitraryBytes<M>>
 {
     fn rem_assign_with_quotient(&mut self, divisor : &Self) -> Self{
 
@@ -359,7 +406,7 @@ impl<const N : usize> ArbitraryBytes<N>{
     
     //This is Knuth, The Art of Computer Programming Volume 2, Section 4.3, Algorithm D.
     fn rem_assign_with_quotient_knuth<const M : usize>(&mut self, divisor : &Self) -> Self
-        where Self : PadWithAZero<Output = ArbitraryBytes<M>> +
+        where Self : PaddedShiftLeft<Output = ArbitraryBytes<M>> +
                      for<'a> From<&'a usize>
     {
         debug_assert!(M == N+1);
@@ -373,8 +420,8 @@ impl<const N : usize> ArbitraryBytes<N>{
         //step D1: Normalize. This brings the maximum error for each digit down to no more than 2.
         let normalize_shift = divisor.get_digit_from_right(n_digits_divisor - 1).leading_zeros();
         //again, missing const generics ruin all the fun.
-        let mut dividend = self.shift_left(normalize_shift);
-        let divisor = divisor.shift_left(normalize_shift);
+        let mut dividend = self.padded_shift_left(normalize_shift);
+        let divisor = divisor.padded_shift_left(normalize_shift);
         debug_assert_eq!(divisor.get_digit_from_right(n_digits_divisor - 1).leading_zeros(),0);
 
         let mut quotient : Self = (&0_usize).into();
@@ -432,17 +479,6 @@ impl<const N : usize> ArbitraryBytes<N>{
     }
     fn set_digit_from_right(&mut self, val: u32, i : usize){
         self.0[N-i-1] = val;
-    }
-
-    fn shift_left<const M : usize>(&self, s : u32) -> <Self as PadWithAZero>::Output
-        where Self : PadWithAZero<Output = ArbitraryBytes<M>>
-    {
-        debug_assert!(s < 32);
-        let mut res = self.pad_with_a_zero();
-        if s != 0{
-            res.0.iter_mut().zip(self.0.iter().chain(once(&0))).for_each(|(current, next)| *current = (*current << s) | (*next >> (32-s)));
-        }
-        res
     }
 
     fn shift_right(mut self, s : u32) -> Self {
@@ -688,10 +724,17 @@ mod arbitrary_bytes_tests{
     }
 
     #[test]
-    fn shift_left_test() {
+    fn shift_left_test_5() {
         let a = ArbitraryBytes::new([0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
-        let b = a.shift_left(7);
+        let b = a.padded_shift_left(7);
         assert_eq!(b.0,[0x21, 0x53DF817F,0xFFFFFFE3, 0x89C5EA89, 0x1A2B3C55, 0xE6F00900]);
+    }
+
+    #[test]
+    fn shift_left_test_8() {
+        let a = ArbitraryBytes::new([0x4631abcd,0x35a40be4,0x074c4d0a,0x42a7bf02,0xffffffff,0xc7138bd5,0x12345678,0xabcde012]);
+        let b = a.padded_shift_left(7);
+        assert_eq!(b.0,[0x23, 0x18D5_E69A, 0xD205_F203, 0xA626_8521, 0x53DF_817F, 0xFFFF_FFE3, 0x89C5_EA89, 0x1A2B_3C55, 0xE6F0_0900]);
     }
     
     #[test]

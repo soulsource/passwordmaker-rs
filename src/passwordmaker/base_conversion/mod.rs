@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use iterative_conversion_impl::PadWithAZero;
+use iterative_conversion_impl::PaddedShiftLeft;
 pub(super) use iterative_conversion::IterativeBaseConversion;
 pub(super) use iterative_conversion_impl::{SixteenBytes, ArbitraryBytes};
 
@@ -16,7 +16,7 @@ pub(super) trait BaseConversion {
 
 impl<T, const N : usize, const M : usize> BaseConversion for T 
     where T : ToArbitraryBytes<Output = ArbitraryBytes<N>>,
-        for<'a> T::Output: From<&'a usize> + From<&'a u32> + PadWithAZero<Output = ArbitraryBytes<M>> + PrecomputedMaxPowers<usize>,
+        for<'a> T::Output: From<&'a usize> + From<&'a u32> + PaddedShiftLeft<Output = ArbitraryBytes<M>> + PrecomputedMaxPowers<usize>,
 {
     type Output = IterativeBaseConversion<ArbitraryBytes<N>, usize>;
     fn convert_to_base(self, base : usize) -> Self::Output {
