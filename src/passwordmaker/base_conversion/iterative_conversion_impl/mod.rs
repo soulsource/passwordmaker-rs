@@ -524,6 +524,8 @@ fn u64_from_u32s(msb : u32, lsb : u32) -> u64{
 
 #[cfg(test)]
 mod arbitrary_bytes_tests{
+    use std::iter::successors;
+
     use super::*;
     use rand::RngCore;
     use rand_xoshiro::rand_core::SeedableRng;
@@ -566,7 +568,7 @@ mod arbitrary_bytes_tests{
         assert!(min_divisor_digits <= max_divisor_digits);
         let mut rng = Xoshiro256Plus::seed_from_u64(0);
         let mut res = Vec::new();
-        for _i in 0..1000000 {
+        for _i in 0..100000 {
             let dx = rng.next_u32() % (max_dividend_digits + 1 - min_dividend_digits) + min_dividend_digits;
             let dy = rng.next_u32() % (max_divisor_digits + 1 -  min_divisor_digits) +  min_divisor_digits;
             let ds = dx.min(dy);
@@ -951,5 +953,54 @@ mod arbitrary_bytes_tests{
         let a : ArbitraryBytes<8> = (&0xcd705aef_usize).into();
         assert_eq!(a.0[7], 0xcd705aef);
         assert!(a.0[..7].iter().all(|x| *x==0));
+    }
+    
+    fn convert_by_division<const N : usize>(value : ArbitraryBytes<N>, base : usize) -> impl Iterator<Item = usize>{
+        successors(Some((value, 0)),|(v, _)| {
+            if *v == (&0usize).into() {
+                None
+            } else {
+                let mut v = v.clone();
+                let remainder = v.div_assign_with_remainder_usize(&base);
+                Some((v, remainder))
+            }
+        }).skip(1).map(|(_,b)| b).collect::<Vec<_>>().into_iter().rev()
+    }
+    #[test]
+    fn compare_conversion_by_division_randoms_8(){
+        let mut rng = Xoshiro256Plus::seed_from_u64(0);
+        for _ in 0..10000 {
+            let v = ArbitraryBytes::new([
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+            ]);
+            let b = rng.next_u32() as usize;
+            let i1 = super::super::IterativeBaseConversion::new(v.clone(),b).skip_while(|v| *v == 0);
+            let i2 = convert_by_division(v,b);
+            assert!(i1.eq(i2));
+        }
+    }
+    #[test]
+    fn compare_conversion_by_division_randoms_5(){
+        let mut rng = Xoshiro256Plus::seed_from_u64(0);
+        for _ in 0..10000 {
+            let v = ArbitraryBytes::new([
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+                rng.next_u32(),
+            ]);
+            let b = rng.next_u32() as usize;
+            let i1 = super::super::IterativeBaseConversion::new(v.clone(),b).skip_while(|v| *v == 0);
+            let i2 = convert_by_division(v,b);
+            assert!(i1.eq(i2));
+        }
     }
 }
