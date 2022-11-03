@@ -38,7 +38,7 @@ impl From<&usize> for SixteenBytes{
 }
 impl DivAssign<&usize> for SixteenBytes{
     fn div_assign(&mut self, rhs: &usize) {
-        self.0 /= *rhs as u128
+        self.0 /= *rhs as u128;
     }
 }
 impl RemAssignWithQuotient for SixteenBytes{
@@ -89,17 +89,18 @@ impl PrecomputedMaxPowers<usize> for ArbitraryBytes<5>{}
 #[cfg(not(any(feature="precomputed_max_powers", feature="precomputed_common_max_powers")))]
 impl PrecomputedMaxPowers<usize> for ArbitraryBytes<8>{}
 
-const fn from_usize<const N : usize>(x : &usize) -> ArbitraryBytes<N> {
+#[allow(clippy::cast_possible_truncation)]
+const fn from_usize<const N : usize>(x : usize) -> ArbitraryBytes<N> {
     let mut result = [0;N]; //from Godbolt it looks like the compiler is smart enough to skip the unnecessary inits.
     #[cfg(target_pointer_width = "64")]
-    if N > 1 { result[N-2] = (*x >> 32) as u32;}
-    if N > 0 { result[N-1] = *x as u32;} //Compiler should hopefully be smart enough to yeet the condition.
+    if N > 1 { result[N-2] = (x >> 32) as u32;}
+    if N > 0 { result[N-1] = x as u32;} //Compiler should hopefully be smart enough to yeet the condition.
     ArbitraryBytes(result)
 }
 
 impl<const N : usize> From<&usize> for ArbitraryBytes<N>{
     fn from(x: &usize) -> Self {
-        from_usize(x)
+        from_usize(*x)
     }
 }
 impl<const N : usize> From<&u32> for ArbitraryBytes<N>{
@@ -198,7 +199,7 @@ impl PaddedShiftLeft for ArbitraryBytes<8>{
 impl<const N : usize> DivAssign<&usize> for ArbitraryBytes<N>{
     //just do long division.
     fn div_assign(&mut self, rhs: &usize) {
-        self.div_assign_with_remainder_usize(rhs);
+        self.div_assign_with_remainder_usize(*rhs);
     }
 }
 
@@ -231,6 +232,7 @@ impl<const N : usize> TryFrom<&ArbitraryBytes<N>> for usize{
             let last_bit = value.0.get(N-1).ok_or(ArbitraryBytesToUsizeError).copied();
             //second-last is not an error though.
             let second_last_bit = value.0.get(N-2).copied().unwrap_or_default();
+            #[allow(clippy::cast_possible_truncation)] //false positive. This function is only compiled on 64bit systems.
             last_bit.map(|last_bit| u64_from_u32s(second_last_bit, last_bit) as usize)
         }
     }
@@ -308,6 +310,7 @@ impl<const N : usize> Mul<&usize> for &ArbitraryBytes<N>{
 
 //Done separately, because "mut references not allowed in const contexts"
 impl<const N : usize> MulAssign<&usize> for ArbitraryBytes<N>{
+    #[allow(clippy::cast_possible_truncation)] //truncation is intentional here.
     fn mul_assign(&mut self, rhs: &usize) {
         #[cfg(target_pointer_width = "64")]
         type Long = u128;
@@ -315,9 +318,9 @@ impl<const N : usize> MulAssign<&usize> for ArbitraryBytes<N>{
         type Long = u64;
         let rhs = *rhs as Long;
         let carry = self.0.iter_mut().rev().fold(0 as Long, |carry, current| {
-            let res = (*current as Long) * rhs + carry;
-            *current = res as u32;
-            res >> 32
+            let result = (*current as Long) * rhs + carry;
+            *current = result as u32;
+            result >> 32
         });
         debug_assert_eq!(carry, 0);
     }
@@ -333,7 +336,7 @@ impl<const N : usize> Mul<&ArbitraryBytes<N>> for &ArbitraryBytes<N> where Arbit
             let p = p.filter(|p| p.0[0..(N-1-i)].iter().all(|&i| i == 0));
             let carry = p.map(|p|{
                 //for some reason it's faster to use slices than iterators here.
-                slice_overflowing_add_assign(&mut result.0[0..(i+1)], &p.0[(N-1-i)..])
+                slice_overflowing_add_assign(&mut result.0[0..=i], &p.0[(N-1-i)..])
             });
             carry.filter(|x| !x).map(|_|())
         });
@@ -341,6 +344,7 @@ impl<const N : usize> Mul<&ArbitraryBytes<N>> for &ArbitraryBytes<N> where Arbit
     }
 }
 
+#[allow(clippy::trait_duplication_in_bounds)] //obvious false positive. u32 and usize aren't the same.
 impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<N> 
     where Self : for<'a> From<&'a usize> + for<'a> From<&'a u32> + PaddedShiftLeft<Output = ArbitraryBytes<M>>
 {
@@ -354,7 +358,7 @@ impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<
             std::cmp::Ordering::Greater => {
                 //If a single digit division suffices, do a single digit division.
                 if let Ok(divisor_as_u32) = divisor.try_into() {
-                    self.rem_assign_with_quotient_u32(&divisor_as_u32)
+                    self.rem_assign_with_quotient_u32(divisor_as_u32)
                 } else {
                     self.rem_assign_with_quotient_knuth(divisor)
                 }
@@ -366,10 +370,10 @@ impl<const N : usize, const M : usize> RemAssignWithQuotient for ArbitraryBytes<
 macro_rules! make_div_assign_with_remainder {
     ($name:ident, $t_divisor:ty, $t_long:ty) => {
         /// Replaces self with Quotient and returns Remainder
-        fn $name(&mut self, rhs: &$t_divisor) -> $t_divisor {
+        fn $name(&mut self, rhs: $t_divisor) -> $t_divisor {
             debug_assert!((<$t_long>::MAX >> 32) as u128 >= <$t_divisor>::MAX as u128);
 
-            let divisor = *rhs as $t_long;
+            let divisor = rhs as $t_long;
             let remainder = self.0.iter_mut().fold(0 as $t_long,|carry, current| {
                 debug_assert_eq!(carry, carry & (<$t_divisor>::MAX as $t_long)); //carry has to be lower than divisor, and divisor is $t_divisor.
                 let carry_shifted = carry << 32;
@@ -399,7 +403,7 @@ impl<const N : usize> ArbitraryBytes<N>{
 
     make_div_assign_with_remainder!(div_assign_with_remainder_u32, u32, u64);
 
-    fn rem_assign_with_quotient_u32(&mut self, divisor: &u32) -> Self where Self : for<'a> From<&'a u32> {
+    fn rem_assign_with_quotient_u32(&mut self, divisor: u32) -> Self where Self : for<'a> From<&'a u32> {
         let remainder = self.div_assign_with_remainder_u32(divisor);
         std::mem::replace(self, Self::from(&remainder))
     }
@@ -427,8 +431,8 @@ impl<const N : usize> ArbitraryBytes<N>{
         let mut quotient : Self = (&0_usize).into();
 
         //needed for Step D3, but is the same for all iterations -> factored out.
-        let guess_divisor = divisor.get_digit_from_right(n_digits_divisor - 1) as u64;
-        let divisor_second_significant_digit = divisor.get_digit_from_right(n_digits_divisor-2) as u64;
+        let guess_divisor = u64::from(divisor.get_digit_from_right(n_digits_divisor - 1));
+        let divisor_second_significant_digit = u64::from(divisor.get_digit_from_right(n_digits_divisor-2));
 
         //step D2, D7: the loop.
         for j in (0..=m_extra_digits_dividend).rev() {
@@ -437,16 +441,17 @@ impl<const N : usize> ArbitraryBytes<N>{
             let mut guesstimate = guess_dividend/guess_divisor;
             let mut guess_reminder = guess_dividend % guess_divisor;
             //refine our guesstimate (still step D3). Ensures that error of guesstimate is either 0 or +1.
-            while guess_reminder <= u32::MAX as u64
-                && (guesstimate > u32::MAX as u64
+            while u32::try_from(guess_reminder).is_ok()
+                && (guesstimate > u64::from(u32::MAX)
                     || divisor_second_significant_digit * guesstimate
-                        > (guess_reminder << 32) | (dividend.get_digit_from_right(j + n_digits_divisor - 2) as u64)
+                        > (guess_reminder << 32) | u64::from(dividend.get_digit_from_right(j + n_digits_divisor - 2))
                 ) {
                 guesstimate -= 1;
                 guess_reminder += guess_divisor;
             }
             //Step D4: Pretend the guess was correct and subtract guesstimate * divisor from dividend.
-            debug_assert!(guesstimate & (u32::MAX as u64) == guesstimate, "The while above should have made guesstimate a one-digit number. Debug!");
+            debug_assert!(guesstimate & u64::from(u32::MAX) == guesstimate, "The while above should have made guesstimate a one-digit number. Debug!");
+            #[allow(clippy::cast_possible_truncation)]
             let mut guesstimate = guesstimate as u32;
             let s = (divisor.clone() * guesstimate).expect("Multipliation by a digit cannot overflow for a padded type.");
             let s_range = (M - 1 - n_digits_divisor)..M;
@@ -458,7 +463,7 @@ impl<const N : usize> ArbitraryBytes<N>{
                 guesstimate -= 1;
                 //The addition must overflow again. The two overflows cancel out, and since we are using wrapping arithmetics, the result becomes correct again.
                 let did_overflow = slice_overflowing_add_assign(&mut dividend.0[d_range], &divisor.0[s_range]);
-                debug_assert!(did_overflow, "Knuth, TAOCP Vol 2, Chap 4.3.1 exercise 21 says: if this fails, the while above is wrong. Debug.")
+                debug_assert!(did_overflow, "Knuth, TAOCP Vol 2, Chap 4.3.1 exercise 21 says: if this fails, the while above is wrong. Debug.");
             }
             quotient.set_digit_from_right(guesstimate, j);
         }
@@ -516,10 +521,10 @@ fn slice_overflowing_add_assign(lhs : &mut [u32], rhs : &[u32]) -> bool {
     })
 }
 
-fn u64_from_u32s(msb : u32, lsb : u32) -> u64{
-    let msb = msb as u64;
-    let lsb = lsb as u64;
-    (msb << 32) | lsb
+fn u64_from_u32s(m : u32, l : u32) -> u64{
+    let m = m as u64;
+    let l = l as u64;
+    (m << 32) | l
 }
 
 #[cfg(test)]
@@ -640,7 +645,7 @@ mod arbitrary_bytes_tests{
     fn rem_assign_with_quotient_u32_many_numbers_test() {
         let input = prepare_many_numbers(4,1, 1, 1);
         for (mut dividend, divisor, expected_quotient, expexted_remainder) in input {
-            let quotient = dividend.rem_assign_with_quotient_u32(&divisor.0.last().unwrap());
+            let quotient = dividend.rem_assign_with_quotient_u32(*divisor.0.last().unwrap());
             let remainder = dividend;
             let quotient = ((quotient.0[1] as u128)<<(96)) + ((quotient.0[2] as u128)<<64) + ((quotient.0[3] as u128)<<32) + (quotient.0[4] as u128);
             let remainder = ((remainder.0[1] as u128)<<(96)) + ((remainder.0[2] as u128)<<64) + ((remainder.0[3] as u128)<<32) + (remainder.0[4] as u128);
@@ -652,7 +657,7 @@ mod arbitrary_bytes_tests{
     #[test]
     fn rem_assign_with_quotient_u32_test(){
         let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
-        let quotient = a.rem_assign_with_quotient_u32(&0x12345);
+        let quotient = a.rem_assign_with_quotient_u32(0x12345);
         assert_eq!(quotient.0, [0x9A10,0xB282B7BA,0xE4948E98,0x2AE63D74,0xE6FDFF4A]);
         assert_eq!(a.0, [0,0,0,0,0x6882]);
     }
@@ -660,7 +665,7 @@ mod arbitrary_bytes_tests{
     #[test]
     fn rem_assign_with_quotient_u32_test2(){
         let mut a = ArbitraryBytes::new([0,0,0,0,0x1234]);
-        let quotient = a.rem_assign_with_quotient_u32(&0x12345);
+        let quotient = a.rem_assign_with_quotient_u32(0x12345);
         assert_eq!(quotient.0, [0,0,0,0,0]);
         assert_eq!(a.0, [0,0,0,0,0x1234]);
     }
@@ -668,7 +673,7 @@ mod arbitrary_bytes_tests{
     #[test]
     fn div_assign_with_remainder_usize_test(){
         let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
-        let remainder = a.div_assign_with_remainder_usize(&0x1234_usize);
+        let remainder = a.div_assign_with_remainder_usize(0x1234_usize);
         assert_eq!(a.0, [0x9A135,0x79AA8650,0xD251DC7A,0x9AA8C1F2,0x8B9729EF]);
         assert_eq!(remainder, 0x2E8);
     }
@@ -676,7 +681,7 @@ mod arbitrary_bytes_tests{
     #[test]
     fn div_assign_with_remainder_usize_test2(){
         let mut a = ArbitraryBytes::new([0,0,0,0,0x1234]);
-        let remainder = a.div_assign_with_remainder_usize(&0x1235_usize);
+        let remainder = a.div_assign_with_remainder_usize(0x1235_usize);
         assert_eq!(a.0, [0,0,0,0,0]);
         assert_eq!(remainder, 0x1234);
     }
@@ -685,7 +690,7 @@ mod arbitrary_bytes_tests{
     #[test]
     fn div_assign_with_remainder_usize_test3(){
         let mut a = ArbitraryBytes::new([0xaf4a816a,0xb414f734,0x7a2167c7,0x47ea7314,0xfba75574]);
-        let remainder = a.div_assign_with_remainder_usize(&0x123456789ab_usize);
+        let remainder = a.div_assign_with_remainder_usize(0x123456789ab_usize);
         assert_eq!(a.0, [0,0x9A107B,0xBEC8B35A,0xEC9D3B43,0x056F803A]);
         assert_eq!(remainder, 0xD7537A4B6);
     }
@@ -961,7 +966,7 @@ mod arbitrary_bytes_tests{
                 None
             } else {
                 let mut v = v.clone();
-                let remainder = v.div_assign_with_remainder_usize(&base);
+                let remainder = v.div_assign_with_remainder_usize(base);
                 Some((v, remainder))
             }
         }).skip(1).map(|(_,b)| b).collect::<Vec<_>>().into_iter().rev()

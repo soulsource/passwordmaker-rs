@@ -20,6 +20,7 @@ pub(crate) struct IterativeBaseConversion<V,B>{
     switch_to_multiplication : bool, //count the number of divisions. After 1, current_value is smaller than max_base_power. After 2, it's safe to mutliply current_value by base.
 }
 
+#[allow(clippy::trait_duplication_in_bounds)] //That's obviously a false-positive in clippy...
 impl<V,B> IterativeBaseConversion<V,B> 
     where V: for<'a> From<&'a B> +                          //could be replaced by num::traits::identities::One.
              PrecomputedMaxPowers<B>,
@@ -37,6 +38,7 @@ impl<V,B> IterativeBaseConversion<V,B>
         }
     }
 
+    #[allow(clippy::map_unwrap_or)] //current code seems to be measurably faster.
     fn find_highest_fitting_power(base : &B) -> PowerAndExponent<V> {
         V::lookup(base).map(|(power,count)| PowerAndExponent{ power, exponent: count })
             .unwrap_or_else(|| Self::find_highest_fitting_power_non_cached(base))
@@ -66,6 +68,7 @@ impl<V,B> std::iter::Iterator for IterativeBaseConversion<V,B>
 {
     type Item = B;
 
+    #[allow(clippy::assign_op_pattern)] //measurable performance difference. No, this doesn't make sense.
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining_digits == 0 {
             None
@@ -75,7 +78,7 @@ impl<V,B> std::iter::Iterator for IterativeBaseConversion<V,B>
             if self.switch_to_multiplication {
                 //mul_assign is in principle dangerous.
                 //Since we do two rem_assign_with_quotient calls first, we can be sure that the result is always smaller than base^max_power though.
-                self.current_value *= &self.base
+                self.current_value *= &self.base;
             } else {
                 self.current_base_power /=  &self.base;
                 self.switch_to_multiplication = true;
