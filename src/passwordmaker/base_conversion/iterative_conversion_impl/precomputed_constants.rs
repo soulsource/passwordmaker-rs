@@ -4,17 +4,17 @@ use super::super::iterative_conversion::PrecomputedMaxPowers;
 
 impl PrecomputedMaxPowers<usize> for ArbitraryBytes<5>{
     fn lookup(base : &usize) -> Option<(Self, usize)> { 
-        get_from_cache(base, &CONSTANT_MAX_POWER_CACHE_5)
+        get_from_cache(*base, &CONSTANT_MAX_POWER_CACHE_5)
     }
 }
 
 impl PrecomputedMaxPowers<usize> for ArbitraryBytes<8>{
     fn lookup(base : &usize) -> Option<(Self, usize)> { 
-        get_from_cache(base, &CONSTANT_MAX_POWER_CACHE_8)
+        get_from_cache(*base, &CONSTANT_MAX_POWER_CACHE_8)
      }
 }
 
-fn get_from_cache<const N : usize>(base : &usize, cache : &[([u32;N], usize)]) -> Option<(ArbitraryBytes<N>, usize)>{
+fn get_from_cache<const N : usize>(base : usize, cache : &[([u32;N], usize)]) -> Option<(ArbitraryBytes<N>, usize)>{
     base.checked_sub(2).and_then(|idx|cache.get(idx))
         .map(|c| (ArbitraryBytes(c.0), c.1))
 }
@@ -24,9 +24,9 @@ const CONSTANT_MAX_POWER_CACHE_8 : [([u32;8],usize);128] = gen_const_max_power_c
 
 //-----------------------------------------------------------------------------------------
 
-/// This version of find_highest_fitting_power is not optimized. But it can run in const contexts. Only use it there, use the normal one everywhere else.
+/// This version of `find_highest_fitting_power` is not optimized. But it can run in const contexts. Only use it there, use the normal one everywhere else.
 const fn const_find_highest_fitting_power<const N : usize>(base : usize) -> ([u32;N],usize){
-    let start = super::from_usize(&base);
+    let start = super::from_usize(base);
 
     let mut x = (start, 1);
     while let Some(next) = const_mul_usize(const_clone(&x.0),base) {
@@ -81,7 +81,7 @@ mod iterative_conversion_constants_tests{
         for (base, mut power, exponent) in entries {
             //exponent is the largest fitting exponent. Soo, if we divide exponent times, we should end up with 1.
             for _i in 0..exponent  {
-                let remainder = power.div_assign_with_remainder_usize(&base);
+                let remainder = power.div_assign_with_remainder_usize(base);
                 assert_eq!(remainder, 0);
             }
             assert_eq!(power, (&1usize).into());
@@ -95,7 +95,7 @@ mod iterative_conversion_constants_tests{
         for (base, mut power, exponent) in entries {
             //exponent is the largest fitting exponent. Soo, if we divide exponent times, we should end up with 1.
             for _i in 0..exponent  {
-                let remainder = power.div_assign_with_remainder_usize(&base);
+                let remainder = power.div_assign_with_remainder_usize(base);
                 assert_eq!(remainder, 0);
             }
             assert_eq!(power, (&1usize).into());

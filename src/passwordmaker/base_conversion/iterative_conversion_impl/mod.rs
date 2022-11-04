@@ -476,7 +476,7 @@ impl<const N : usize> ArbitraryBytes<N>{
     }
 
     fn find_first_nonzero_digit(&self) -> usize{
-        self.0.iter().enumerate().skip_while(|(_,v)| **v == 0).next().map(|(x,_)| x).unwrap_or(N)
+        self.0.iter().enumerate().find(|(_,v)| **v != 0).map_or(N,|(x,_)| x)
     }
 
     fn get_digit_from_right(&self, i : usize) -> u32{
@@ -504,7 +504,7 @@ impl<const N : usize> ArbitraryBytes<N>{
 fn slice_overflowing_sub_assign(lhs : &mut [u32], rhs: &[u32]) -> bool{
     debug_assert_eq!(lhs.len(), rhs.len());
     lhs.iter_mut().zip(rhs.iter()).rev().fold(false,|carry,(a,b)| {
-        let r = b.overflowing_add(carry as u32);
+        let r = b.overflowing_add(u32::from(carry));
         let s = a.overflowing_sub(r.0);
         *a = s.0;
         r.1 || s.1
@@ -514,7 +514,7 @@ fn slice_overflowing_sub_assign(lhs : &mut [u32], rhs: &[u32]) -> bool{
 fn slice_overflowing_add_assign(lhs : &mut [u32], rhs : &[u32]) -> bool {
     debug_assert_eq!(lhs.len(), rhs.len());
     lhs.iter_mut().zip(rhs.iter()).rev().fold(false, |carry, (a, b)| {
-        let r = b.overflowing_add(carry as u32);
+        let r = b.overflowing_add(u32::from(carry));
         let s = a.overflowing_add(r.0);
         *a = s.0;
         r.1 || s.1
@@ -522,8 +522,8 @@ fn slice_overflowing_add_assign(lhs : &mut [u32], rhs : &[u32]) -> bool {
 }
 
 fn u64_from_u32s(m : u32, l : u32) -> u64{
-    let m = m as u64;
-    let l = l as u64;
+    let m = u64::from(m);
+    let l = u64::from(l);
     (m << 32) | l
 }
 

@@ -14,6 +14,7 @@ pub(super) trait BaseConversion {
     fn convert_to_base(self, base : usize) -> Self::Output;
 }
 
+#[allow(clippy::trait_duplication_in_bounds)] //False positive in clippy. usize != u32.
 impl<T, const N : usize, const M : usize> BaseConversion for T 
     where T : ToArbitraryBytes<Output = ArbitraryBytes<N>>,
         for<'a> T::Output: From<&'a usize> + From<&'a u32> + PaddedShiftLeft<Output = ArbitraryBytes<M>> + PrecomputedMaxPowers<usize>,

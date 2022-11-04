@@ -201,15 +201,25 @@ fn combine_prefix_password_suffix<'a, T : Iterator<Item=Grapheme<'a>>>(password:
     result
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] //signature is actually determined by Iterator::skip_while(). There's simply no choice.
 fn is_zero(i : &usize) -> bool {
     *i == 0
 }
 
+type BaseConversion16 = IterativeBaseConversion<SixteenBytes,usize>;
+type BaseConversion16Modern = SkipWhile<BaseConversion16,fn(&usize)->bool>;
+
+type BaseConversion20 = IterativeBaseConversion<ArbitraryBytes<5>,usize>;
+type BaseConversion20Modern = SkipWhile<BaseConversion20,fn(&usize)->bool>;
+
+type BaseConversion32 = IterativeBaseConversion<ArbitraryBytes<8>,usize>;
+type BaseConversion32Modern = SkipWhile<BaseConversion32,fn(&usize)->bool>;
+
 enum GetGraphemesIteratorInner {
-    Modern16(SkipWhile<IterativeBaseConversion<SixteenBytes,usize>,fn(&usize)->bool>),
-    Modern20(SkipWhile<IterativeBaseConversion<ArbitraryBytes<5>,usize>,fn(&usize)->bool>),
-    Modern32(SkipWhile<IterativeBaseConversion<ArbitraryBytes<8>,usize>,fn(&usize)->bool>),
-    V06(IterativeBaseConversion<SixteenBytes,usize>)
+    Modern16(BaseConversion16Modern),
+    Modern20(BaseConversion20Modern),
+    Modern32(BaseConversion32Modern),
+    V06(BaseConversion16)
 }
 struct GetGraphemesIterator<'a> {
     graphemes : &'a Vec<Grapheme<'a>>,
