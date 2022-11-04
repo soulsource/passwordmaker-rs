@@ -422,3 +422,22 @@ fn test_suffix_with_insufficient_length_with_post_leet(){
         "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789".to_owned()).unwrap();
     assert_eq!(result, "suffi");
 }
+
+/// This test exists primarily to test base conversion manual max power search. If certain features are enabled, some values are hard-coded for shorter charsets.
+#[test]
+fn test_very_large_character_set(){
+    let pwm = Pwm::new(
+        HashAlgorithm::Md5, 
+        passwordmaker_rs::UseLeetWhenGenerating::NotAtAll,
+        r#"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!§$%&/()=?`+*~#'öäüÖÄÜ-_.:,;|<>@€[]}{¬½¼³²¹¡⅛£¤⅜⅝⅞™±°¿˛¯˘—÷×″^°ſ¶®ŧŦ←¥↓↑→ıøØþÞæÆſẞðÐđªŋŊħĦĸłŁ¢©„‚“‘”’µº"#,
+        "max_mustermann",
+        "modification",
+        64,
+        "pre",
+        "suf"
+    ).unwrap();
+    let result = pwm.generate(
+        ".0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789öä@€Whatever".to_owned(), 
+        "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789".to_owned()).unwrap();
+    assert_eq!(result, r#"preF.º„ĸsj®³5⅜±←|ö←U1Fh~`€ſµ½ẞ5öi6:¯—#öŁ#Oö—ſkª“/[§Ŋ↓½`'Bu:″¯suf"#);
+}

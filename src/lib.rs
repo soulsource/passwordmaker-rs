@@ -17,6 +17,23 @@
 //! 
 //! [`PasswordMaker`] is the main part of this crate. You give it settings similar to those of a PasswordMaker Pro profile,
 //! and it gives you a password that's hopfully the same you'd get from PasswordMaker Pro for the same input.
+//! 
+//! # Features
+//! The library comes with a set of precomputed powers to (slightly) speed up computation in common use cases. By default, constants
+//! for the lengths of the pre-defined character sets of PasswordMaker Pro are included (10, 16, 32, 52, 62, 94), amounting to a total
+//! of 360 bytes on a 32bit machine, and 408 bytes on a 64bit machine (and some instructions to read them). For all other character
+//! set lengths the values are computed at runtime when needed. Those values are in the (default-enabled)
+//! `precomputed_common_max_powers` feature.
+//! 
+//! If you prefer simpler code and want to save a couple of bytes in the binary, you can disable `default-features` to use runtime
+//! computation for all values, at the cost of a slight performance impact.
+//! 
+//! On the other hand, if binary size is not of concern, you might want to enable the `precomputed_max_powers` feature.
+//! This feature enables precomputed powers for all bases in the range 2..130. It therefore needs 7680 bytes on a 32bit machine, and
+//! 8704 bytes on a 64bit machine (plus some extra instructions).
+//! 
+//! # Warning
+//! This library has NOT been tested on 16bit machines. It might work, but probably does not.
 
 
 mod passwordmaker;

@@ -1,9 +1,12 @@
-use std::iter::repeat;
+use std::iter::SkipWhile;
+
 use unicode_segmentation::UnicodeSegmentation;
 use leet::LeetReplacementTable;
 use grapheme::Grapheme;
 
 use base_conversion::BaseConversion;
+
+use self::base_conversion::{IterativeBaseConversion, SixteenBytes, ArbitraryBytes};
 
 use super::Hasher;
 
@@ -94,7 +97,6 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let message = yeet_upper_bytes(&message).collect::<Vec<u8>>();
         let hash = H::MD5::hash(&message);
         let grapheme_indices = hash.convert_to_base(characters.len());
-        let grapheme_indices = yoink_additional_graphemes_for_06_if_needed(grapheme_indices);
         GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::V06(grapheme_indices)}
     }
 
@@ -112,7 +114,6 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let data = yeet_upper_bytes(data);
         let hash = hmac::hmac::<H::MD5,_,_>(key, data);
         let grapheme_indices = hash.convert_to_base(characters.len());
-        let grapheme_indices = yoink_additional_graphemes_for_06_if_needed(grapheme_indices);
         GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::V06(grapheme_indices)}
     }
     
@@ -128,17 +129,17 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let data = leetified_data.as_deref().unwrap_or(data);
         let grapheme_indices = match algo {
             Algorithm::Md4 => 
-                modern_hmac_to_grapheme_indices::<H::MD4>(&key, data, characters.len()),
+                GetGraphemesIteratorInner::Modern16(modern_hmac_to_grapheme_indices::<H::MD4>(&key, data, characters.len()).skip_while(is_zero)),
             Algorithm::Md5 => 
-                modern_hmac_to_grapheme_indices::<H::MD5>(&key, data, characters.len()),
+                GetGraphemesIteratorInner::Modern16(modern_hmac_to_grapheme_indices::<H::MD5>(&key, data, characters.len()).skip_while(is_zero)),
             Algorithm::Sha1 => 
-                modern_hmac_to_grapheme_indices::<H::SHA1>(&key, data, characters.len()),
+                GetGraphemesIteratorInner::Modern20(modern_hmac_to_grapheme_indices::<H::SHA1>(&key, data, characters.len()).skip_while(is_zero)),
             Algorithm::Sha256 => 
-                modern_hmac_to_grapheme_indices::<H::SHA256>(&key, data, characters.len()),
+                GetGraphemesIteratorInner::Modern32(modern_hmac_to_grapheme_indices::<H::SHA256>(&key, data, characters.len()).skip_while(is_zero)),
             Algorithm::Ripemd160 => 
-                modern_hmac_to_grapheme_indices::<H::RIPEMD160>(&key, data, characters.len()),
+                GetGraphemesIteratorInner::Modern20(modern_hmac_to_grapheme_indices::<H::RIPEMD160>(&key, data, characters.len()).skip_while(is_zero)),
         };
-        GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::Modern(grapheme_indices)}
+        GetGraphemesIterator { graphemes : characters, inner: grapheme_indices}
     }
     
     fn generate_password_part_modern<'a>(
@@ -152,17 +153,17 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let message = pre_leet_level.as_ref().map(|l| l.leetify(&message)).unwrap_or(message);
         let grapheme_indices = match algo {
             Algorithm::Md4 => 
-                modern_message_to_grapheme_indices::<H::MD4>(&message, characters.len()),
+                GetGraphemesIteratorInner::Modern16(modern_message_to_grapheme_indices::<H::MD4>(&message, characters.len()).skip_while(is_zero)),
             Algorithm::Md5 => 
-                modern_message_to_grapheme_indices::<H::MD5>(&message,characters.len()),
+                GetGraphemesIteratorInner::Modern16(modern_message_to_grapheme_indices::<H::MD5>(&message,characters.len()).skip_while(is_zero)),
             Algorithm::Sha1 => 
-                modern_message_to_grapheme_indices::<H::SHA1>(&message,characters.len()),
+                GetGraphemesIteratorInner::Modern20(modern_message_to_grapheme_indices::<H::SHA1>(&message,characters.len()).skip_while(is_zero)),
             Algorithm::Sha256 => 
-                modern_message_to_grapheme_indices::<H::SHA256>(&message,characters.len()),
+                GetGraphemesIteratorInner::Modern32(modern_message_to_grapheme_indices::<H::SHA256>(&message,characters.len()).skip_while(is_zero)),
             Algorithm::Ripemd160 => 
-                modern_message_to_grapheme_indices::<H::RIPEMD160>(&message,characters.len()),
+                GetGraphemesIteratorInner::Modern20(modern_message_to_grapheme_indices::<H::RIPEMD160>(&message,characters.len()).skip_while(is_zero)),
         };
-        GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::Modern(grapheme_indices)}
+        GetGraphemesIterator { graphemes : characters, inner: grapheme_indices}
     }
 }
 
@@ -200,16 +201,29 @@ fn combine_prefix_password_suffix<'a, T : Iterator<Item=Grapheme<'a>>>(password:
     result
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] //signature is actually determined by Iterator::skip_while(). There's simply no choice.
+fn is_zero(i : &usize) -> bool {
+    *i == 0
+}
+
+type BaseConversion16 = IterativeBaseConversion<SixteenBytes,usize>;
+type BaseConversion16Modern = SkipWhile<BaseConversion16,fn(&usize)->bool>;
+
+type BaseConversion20 = IterativeBaseConversion<ArbitraryBytes<5>,usize>;
+type BaseConversion20Modern = SkipWhile<BaseConversion20,fn(&usize)->bool>;
+
+type BaseConversion32 = IterativeBaseConversion<ArbitraryBytes<8>,usize>;
+type BaseConversion32Modern = SkipWhile<BaseConversion32,fn(&usize)->bool>;
+
 enum GetGraphemesIteratorInner {
-    Modern(std::iter::Rev<std::vec::IntoIter<usize>>),
-    V06(std::iter::Chain<std::iter::Take<std::iter::Repeat<usize>>, std::iter::Rev<std::vec::IntoIter<usize>>>)
+    Modern16(BaseConversion16Modern),
+    Modern20(BaseConversion20Modern),
+    Modern32(BaseConversion32Modern),
+    V06(BaseConversion16)
 }
 struct GetGraphemesIterator<'a> {
     graphemes : &'a Vec<Grapheme<'a>>,
     inner : GetGraphemesIteratorInner
-    //There really should be a better solution than storing those values. If we had arbitrary-length multiplication and subtraction maybe?
-    //like, finding the highest potence of divisor that still is smaller than the dividend, and dividing by that one to get the left-most digit,
-    //dividing the remainder of this operation by the next-lower potence of divisor to get the second digit, and so on?
 }
 
 impl<'a> Iterator for GetGraphemesIterator<'a> {
@@ -217,21 +231,23 @@ impl<'a> Iterator for GetGraphemesIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let idx = match &mut self.inner {
-            GetGraphemesIteratorInner::Modern(i) => i.next(),
+            GetGraphemesIteratorInner::Modern16(i) => i.next(),
+            GetGraphemesIteratorInner::Modern20(i) => i.next(),
+            GetGraphemesIteratorInner::Modern32(i) => i.next(),
             GetGraphemesIteratorInner::V06(i) => i.next(),
         };
         idx.and_then(|idx| self.graphemes.get(idx).cloned())
     }
 }
 
-fn modern_hmac_to_grapheme_indices<T>(key : &str, data: &str, divisor : usize) -> std::iter::Rev<std::vec::IntoIter<usize>>
+fn modern_hmac_to_grapheme_indices<T>(key : &str, data: &str, divisor : usize) -> <<T as Hasher>::Output as BaseConversion>::Output
     where T:Hasher,
     <T as Hasher>::Output: BaseConversion + AsRef<[u8]>
 {
     hmac::hmac::<T,_,_>(key.bytes(), data.bytes()).convert_to_base(divisor)
 }
 
-fn modern_message_to_grapheme_indices<T>(data: &str, divisor : usize) -> std::iter::Rev<std::vec::IntoIter<usize>>
+fn modern_message_to_grapheme_indices<T>(data: &str, divisor : usize) -> <<T as Hasher>::Output as BaseConversion>::Output
     where T:Hasher,
     <T as Hasher>::Output: BaseConversion
 {
@@ -312,11 +328,4 @@ impl AlgoSelection {
 #[allow(clippy::cast_possible_truncation)] //clippy, stop complaining. Truncating is the very purpose of this function...
 fn yeet_upper_bytes(input : &str) -> impl Iterator<Item=u8> + Clone + '_ {
     input.encode_utf16().map(|wide_char| wide_char as u8)
-}
-
-//signature subject to change, but need named types...
-fn yoink_additional_graphemes_for_06_if_needed(input : std::iter::Rev<std::vec::IntoIter<usize>>)
-     -> std::iter::Chain<std::iter::Take<std::iter::Repeat<usize>>, std::iter::Rev<std::vec::IntoIter<usize>>>
-{
-    repeat(0_usize).take(32-input.len()).chain(input)
 }
