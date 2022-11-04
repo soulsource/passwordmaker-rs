@@ -224,9 +224,6 @@ enum GetGraphemesIteratorInner {
 struct GetGraphemesIterator<'a> {
     graphemes : &'a Vec<Grapheme<'a>>,
     inner : GetGraphemesIteratorInner
-    //There really should be a better solution than storing those values. If we had arbitrary-length multiplication and subtraction maybe?
-    //like, finding the highest potence of divisor that still is smaller than the dividend, and dividing by that one to get the left-most digit,
-    //dividing the remainder of this operation by the next-lower potence of divisor to get the second digit, and so on?
 }
 
 impl<'a> Iterator for GetGraphemesIterator<'a> {
