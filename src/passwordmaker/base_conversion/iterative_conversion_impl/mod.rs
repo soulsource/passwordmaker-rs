@@ -1,4 +1,4 @@
-//! Implementation of iterative conversion support for the types we need it for: u128 and [u32;N].
+//! Implementation of iterative conversion support for the types we need it for: u128 and \[u32;N\].
 //! Beware that all functions in this module are optimized for the use cases of passwordmaker-rs. They may or may not
 //! be suitable for anything else.
 
