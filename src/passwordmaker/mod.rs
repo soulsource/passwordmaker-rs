@@ -329,3 +329,28 @@ impl AlgoSelection {
 fn yeet_upper_bytes(input : &str) -> impl Iterator<Item=u8> + Clone + '_ {
     input.encode_utf16().map(|wide_char| wide_char as u8)
 }
+
+#[cfg(test)]
+mod passwordmaker_tests {
+    use super::*;
+
+    #[test]
+    fn test_combine_prefix_password_suffix(){
+        let parameters = PasswordAssemblyParameters::from_public_parameters("prefi", "suffi", 15);
+        let result = combine_prefix_password_suffix(Grapheme::iter_from_str("passwo"), &parameters);
+        assert_eq!(&result, "prefipasswsuffi");
+    }
+    #[test]
+    fn test_combine_prefix_password_suffix_too_short(){
+        let parameters = PasswordAssemblyParameters::from_public_parameters("prefi", "suffi", 8);
+        let result = combine_prefix_password_suffix(Grapheme::iter_from_str("passwo"), &parameters);
+        assert_eq!(&result, "presuffi");
+    }
+
+    #[test]
+    fn test_yeet_upper_bytes(){
+        let testinput = "€©ĦÆÆ";
+        let result = yeet_upper_bytes(testinput).collect::<Vec<_>>();
+        assert_eq!(result, vec![0xac,0xa9,0x26,0xc6,0xc6]);
+    }
+}
