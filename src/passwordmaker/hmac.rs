@@ -3,15 +3,13 @@ use crate::Hasher;
 pub(super) fn hmac<T, K, M>(key : K, data : M) -> T::Output
     where T : Hasher,
     T::Output : AsRef<[u8]>,
-    K : Iterator<Item=u8> + Clone,
+    K : Iterator<Item=u8>,
     M : Iterator<Item=u8>,
 {
-    let key_len = key.clone().count();
-    let key =  if key_len > 64 {
-        KeyOrHash::from_hash(T::hash(&key.collect::<Vec<_>>()))
-    } else {
-        KeyOrHash::from_key(key)
-    };
+    let key = key.collect::<Vec<_>>();
+    let key_hash = if key.len() > 64 { Some(T::hash(&key)) } else { None };
+    let key = key_hash.as_ref().map(T::Output::as_ref).map(<&[u8]>::into_iter).unwrap_or_else(|| (&key).into_iter()).copied();
+
     let key = key.chain(std::iter::repeat(0)); //if key[i] does not exist, use 0 instead.
 
     let mut inner_pad = [0u8;64];
@@ -25,34 +23,4 @@ pub(super) fn hmac<T, K, M>(key : K, data : M) -> T::Output
 
     let hash = T::hash(&inner_pad.iter().copied().chain(data).collect::<Vec<_>>());
     T::hash(&outer_pad.iter().chain(hash.as_ref().iter()).copied().collect::<Vec<_>>())
-}
-
-enum KeyOrHash<K: Iterator<Item=u8>, H: AsRef<[u8]>> {
-    Key(K),
-    Hash{
-        hash : H,
-        idx : usize
-    }
-}
-
-impl<K: Iterator<Item=u8>, H: AsRef<[u8]>> KeyOrHash<K, H>{
-    fn from_key(key : K) -> Self {
-        Self::Key(key)
-    }
-    fn from_hash(hash : H) -> Self {
-        Self::Hash { hash, idx: 0 }
-    }
-}
-
-impl<K: Iterator<Item=u8>, H: AsRef<[u8]>> Iterator for KeyOrHash<K, H>{
-    type Item = u8;
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            KeyOrHash::Key(k) => k.next(),
-            KeyOrHash::Hash { hash: owned, idx } => {
-                *idx += 1;
-                owned.as_ref().get(*idx-1).copied()
-            },
-        }
-    }
 }

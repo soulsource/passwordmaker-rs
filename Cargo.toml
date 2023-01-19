@@ -46,5 +46,9 @@ name = "hashrate_16"
 harness = false
 
 [[bench]]
+name = "hashrate_16_hmac"
+harness = false
+
+[[bench]]
 name = "leet"
 harness = false
