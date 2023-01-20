@@ -1,26 +1,23 @@
 use crate::Hasher;
 
-pub(super) fn hmac<T, K, M>(key : K, data : M) -> T::Output
+pub(super) fn hmac<T, M>(key : &[u8], data : M) -> T::Output
     where T : Hasher,
     T::Output : AsRef<[u8]>,
-    K : Iterator<Item=u8>,
     M : Iterator<Item=u8>,
 {
-    let key = key.collect::<Vec<_>>();
+    //Sorry for this uglyness. key_hash is an Option because we don't want to compute it if we don't need it, but
+    //we also want to be able to reference it in case it's needed.
     let key_hash = if key.len() > 64 { Some(T::hash(&key)) } else { None };
-    let key = key_hash.as_ref().map(T::Output::as_ref).map(<&[u8]>::into_iter).unwrap_or_else(|| (&key).into_iter()).copied();
+    let key = key_hash.as_ref().map(T::Output::as_ref).map(<&[u8]>::into_iter)
+        .unwrap_or_else(|| (&key).into_iter()).copied();
 
-    let key = key.chain(std::iter::repeat(0)); //if key[i] does not exist, use 0 instead.
+    let key = key
+        .chain(std::iter::repeat(0)) //if key[i] does not exist, use 0 instead.
+        .take(64); //and the pads have 64 bytes
 
-    let mut inner_pad = [0u8;64];
-    let mut outer_pad = [0u8;64];
+    let inner_pad = key.clone().map(|k| k ^ 0x36);
+    let outer_pad = key.map(|k| k ^ 0x5C);
 
-    let pads = inner_pad.iter_mut().zip(outer_pad.iter_mut());
-    for ((i,o),k) in pads.zip(key) {
-        *i = k ^ 0x36;
-        *o = k ^ 0x5C;
-    }
-
-    let hash = T::hash(&inner_pad.iter().copied().chain(data).collect::<Vec<_>>());
-    T::hash(&outer_pad.iter().chain(hash.as_ref().iter()).copied().collect::<Vec<_>>())
+    let hash = T::hash(&inner_pad.chain(data).collect::<Vec<_>>());
+    T::hash(&outer_pad.chain(hash.as_ref().iter().copied()).collect::<Vec<_>>())
 }

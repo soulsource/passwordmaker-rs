@@ -112,7 +112,7 @@ impl<'y, H : super::HasherList> super::PasswordMaker<'y, H>{
         let data = leetified_data.as_deref().unwrap_or(data);
         let key = yeet_upper_bytes(&key);
         let data = yeet_upper_bytes(data);
-        let hash = hmac::hmac::<H::MD5,_,_>(key, data);
+        let hash = hmac::hmac::<H::MD5,_>(&key.collect::<Vec<_>>(), data);
         let grapheme_indices = hash.convert_to_base(characters.len());
         GetGraphemesIterator { graphemes : characters, inner: GetGraphemesIteratorInner::V06(grapheme_indices)}
     }
@@ -244,7 +244,7 @@ fn modern_hmac_to_grapheme_indices<T>(key : &str, data: &str, divisor : usize) -
     where T:Hasher,
     <T as Hasher>::Output: BaseConversion + AsRef<[u8]>
 {
-    hmac::hmac::<T,_,_>(key.bytes(), data.bytes()).convert_to_base(divisor)
+    hmac::hmac::<T,_>(key.as_bytes(), data.bytes()).convert_to_base(divisor)
 }
 
 fn modern_message_to_grapheme_indices<T>(data: &str, divisor : usize) -> <<T as Hasher>::Output as BaseConversion>::Output
