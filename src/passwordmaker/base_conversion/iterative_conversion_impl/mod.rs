@@ -229,7 +229,7 @@ impl<const N : usize> TryFrom<&ArbitraryBytes<N>> for usize{
             Err(ArbitraryBytesToUsizeError)
         } else {
             //failing to get last_bit is an actual error.
-            let last_bit = value.0.get(N-1).ok_or(ArbitraryBytesToUsizeError).copied();
+            let last_bit = value.0.get(N-1).copied().ok_or(ArbitraryBytesToUsizeError);
             //second-last is not an error though.
             let second_last_bit = value.0.get(N-2).copied().unwrap_or_default();
             #[allow(clippy::cast_possible_truncation)] //false positive. This function is only compiled on 64bit systems.
