@@ -16,13 +16,16 @@ readme = "README.md"
 default = ["precomputed_common_max_powers"]
 precomputed_max_powers = ["precomputed_common_max_powers"]
 precomputed_common_max_powers = []
+strum = ["dep:strum", "dep:strum_macros"]
 
 [dependencies]
 unicode-segmentation = "1.10.0"
-strum = "0.26.0"
-strum_macros = "0.26.0"
+strum = { version = "0.26.0", optional = true }
+strum_macros = { version = "0.26.0", optional = true }
 
 [dev-dependencies]
+strum = "0.26.0"
+strum_macros = "0.26.0"
 digest = "0.10.5"
 md4 = "0.10.2"
 md-5 = "0.10.5"

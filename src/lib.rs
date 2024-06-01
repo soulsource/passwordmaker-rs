@@ -158,7 +158,8 @@ impl<'a, T : HasherList> PasswordMaker<'a, T>{
 
 /// The leet level to use. The higher the value, the more obfuscated the results.
 #[cfg_attr(test, derive(strum_macros::EnumIter))]
-#[derive(Debug,Clone, Copy, strum_macros::EnumString, strum_macros::VariantNames)]
+#[cfg_attr(feature = "strum", derive(strum_macros::EnumString, strum_macros::VariantNames))]
+#[derive(Debug,Clone, Copy)]
 pub enum LeetLevel {
     /// First Leet level:\
     /// `["4", "b", "c", "d", "3", "f", "g", "h", "i", "j", "k", "1", "m", "n", "0", "p", "9", "r", "s", "7", "u", "v", "w", "x", "y", "z"]`
@@ -201,7 +202,8 @@ pub enum LeetLevel {
 /// to UTF-16 and the discarding of the upper bytes, in addition it disregards the user-supplied character set completely, and instead
 /// just outputs the hash encoded as hexadecimal numbers.
 /// The `HmacMd5Version06` is similarly ignoring the supplied characters and using hexadecimal numbers as output.
-#[derive(Debug,Clone, Copy, strum_macros::EnumString, strum_macros::VariantNames)]
+#[cfg_attr(feature = "strum", derive(strum_macros::EnumString, strum_macros::VariantNames))]
+#[derive(Debug,Clone, Copy)]
 pub enum HashAlgorithm {
     /// Regular Md4 PasswordMaker Pro setting.
     Md4,
@@ -236,8 +238,8 @@ pub enum HashAlgorithm {
 /// It is always applied to each password part when the required password length
 /// is longer than the length obtained by computing a single hash. This is important if the input data or output charset contains certain
 /// characters where the lower case representation depends on context (e.g. 'Σ').
-#[derive(Debug,Clone, Copy, strum_macros::EnumDiscriminants, strum_macros::VariantNames)]
-#[strum_discriminants(derive(strum_macros::EnumString))]
+#[cfg_attr(feature = "strum", derive(strum_macros::EnumDiscriminants, strum_macros::VariantNames), strum_discriminants(derive(strum_macros::EnumString)))]
+#[derive(Debug,Clone, Copy)]
 pub enum UseLeetWhenGenerating {
     /// Do not apply Leet on input or output.
     NotAtAll,
