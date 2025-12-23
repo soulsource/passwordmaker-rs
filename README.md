@@ -1,3 +1,9 @@
+# MOVED
+
+This repo is no longer being updated. You can find the current version at [https://git.grois.info/passwordmaker-rs/](https://git.grois.info/passwordmaker-rs/).
+
+# Description
+
 This project is a Rust reimplementation of [PasswordMaker Pro](https://passwordmaker.org).
 
 Just like the original software, this library is released under the GNU Lesser General Public License. To be precise, under [GNU Lesser General Public License v3.0 or later](https://spdx.org/licenses/LGPL-3.0-or-later.html). See the `LICENSE` file for the full text of the license.
